@@ -1,0 +1,42 @@
+[
+  {
+    "id": "case_combined_elderly",
+    "name": "案例一：老年慢阻肺合并脊柱骨折与糖尿病照护",
+    "age": 73,
+    "gender": "男",
+    "phone": "130-0000-0001",
+    "allergies": "无已知药物过敏，暂行术前禁食水",
+    "createdAt": "2026-05-27T08:11:02.367Z",
+    "lastSyncAt": "2026-05-27T08:11:02.368Z"
+  },
+  {
+    "id": "case_combined_crohn_wearable",
+    "name": "案例二：克罗恩病青年维持期及穿戴生理指标监测",
+    "age": 26,
+    "gender": "男",
+    "phone": "130-0000-0002",
+    "allergies": "无已知药物过敏，既往IT痰史",
+    "createdAt": "2026-05-27T08:11:02.368Z",
+    "lastSyncAt": "2026-05-27T08:11:02.368Z"
+  },
+  {
+    "id": "case_combined_stroke_multichannel",
+    "name": "案例三：重度高血压脑出血ICU急救与急诊多渠道回溯",
+    "age": 53,
+    "gender": "男",
+    "phone": "130-0000-0003",
+    "allergies": "无已知药物过敏，有断药史",
+    "createdAt": "2026-05-27T08:11:02.368Z",
+    "lastSyncAt": "2026-05-27T08:11:02.368Z"
+  },
+  {
+    "id": "case_combined_pediatric",
+    "name": "案例四：儿童骑车摔伤与退热后手脚黄染分诊",
+    "age": 8,
+    "gender": "男",
+    "phone": "130-0000-0004",
+    "allergies": "无已知药物过敏",
+    "createdAt": "2026-05-27T08:11:02.368Z",
+    "lastSyncAt": "2026-05-27T08:11:02.368Z"
+  }
+]
