@@ -1,3 +1,19 @@
 # Ralph Progress Log
 Started: Thu May 28 10:30:40 CST 2026
 ---
+## Thu May 28 10:38:01 CST 2026 - US-001, US-002, US-003 (all 3 stories)
+- What was implemented:
+  - US-001: Added VALID_LOG_TYPES enum in POST /api/clients/:id/logs — rejects 'sms', 'fax', etc.
+  - US-002: Rewrote createDefaultWiki() with PRD 8-section cognitive skeleton
+    - index.md: 当前主要关注, 事件时间轴
+    - medical_history.md: 生理信号, 化验结果, 功能变化 (now 5 ## sections)
+    - medication_plan.md: 当前干预措施
+    - communication_timeline.md: 监测目标, 原始溯源证据 + citation format docs
+  - US-003: Created AGENTS.md with full codebase documentation
+- Files changed: server.cjs, tests/test_api.cjs, AGENTS.md, scripts/ralph/prd.json
+- Learnings:
+  - Test isolation matters: wiki PUT tests overwrite pages, so PRD skeleton tests use their own fresh client via try/finally
+  - Server runs on port 5050 (from .env PORT=5050), not 5000
+  - git add -A skips the llm_wiki_official submodule by default — normal behavior
+  - All 85 tests pass: node tests/test_api.cjs
+---
