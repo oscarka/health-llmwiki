@@ -17,3 +17,12 @@ Started: Thu May 28 10:30:40 CST 2026
   - git add -A skips the llm_wiki_official submodule by default — normal behavior
   - All 85 tests pass: node tests/test_api.cjs
 ---
+## Thu May 28 11:00:00 CST 2026 - Concurrency, Citation & Stratification Fixes
+- What was implemented:
+  - Concurrency Safety: Appended a random 4-character alphanumeric suffix (`client_${Date.now()}_${randomSuffix}`) to avoid ID collision during parallel case initialization.
+  - DB Citation Linkage: Passed the actual database log `id` field inside the LLM prompt context, enabling the model to generate correct click-to-open `[🔗 溯源](log_...)` badges referencing database IDs instead of text-based titles.
+  - Stratification Guidelines: Refined prompt rules to explicitly direct the model to classify neurological, cognitive, motor, and verbal deficits (e.g. coma, aphasia, hemiplegia) under "Functional Changes", and lines/treatments under "Active Interventions".
+- Verification:
+  - Executed parallel cognitive sync script across all 10 raw clinical cases (`case_001_raw.md` to `case_010_raw.md`) using Doubao. 10/10 cases synced successfully with correct citations and perfect division of clinical information.
+  - All 85 API compliance tests pass successfully.
+

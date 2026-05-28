@@ -6,8 +6,8 @@
     "gender": "男",
     "phone": "130-0000-0001",
     "allergies": "无已知药物过敏，暂行术前禁食水",
-    "createdAt": "2026-05-27T08:11:02.367Z",
-    "lastSyncAt": "2026-05-27T08:11:02.368Z"
+    "createdAt": "2026-05-28T03:01:40.829Z",
+    "lastSyncAt": "2026-05-28T03:01:40.830Z"
   },
   {
     "id": "case_combined_crohn_wearable",
@@ -16,8 +16,8 @@
     "gender": "男",
     "phone": "130-0000-0002",
     "allergies": "无已知药物过敏，既往IT痰史",
-    "createdAt": "2026-05-27T08:11:02.368Z",
-    "lastSyncAt": "2026-05-27T08:11:02.368Z"
+    "createdAt": "2026-05-28T03:01:40.830Z",
+    "lastSyncAt": "2026-05-28T03:01:40.830Z"
   },
   {
     "id": "case_combined_stroke_multichannel",
@@ -26,8 +26,8 @@
     "gender": "男",
     "phone": "130-0000-0003",
     "allergies": "无已知药物过敏，有断药史",
-    "createdAt": "2026-05-27T08:11:02.368Z",
-    "lastSyncAt": "2026-05-27T08:11:02.368Z"
+    "createdAt": "2026-05-28T03:01:40.830Z",
+    "lastSyncAt": "2026-05-28T03:01:40.830Z"
   },
   {
     "id": "case_combined_pediatric",
@@ -36,7 +36,7 @@
     "gender": "男",
     "phone": "130-0000-0004",
     "allergies": "无已知药物过敏",
-    "createdAt": "2026-05-27T08:11:02.368Z",
-    "lastSyncAt": "2026-05-27T08:11:02.368Z"
+    "createdAt": "2026-05-28T03:01:40.830Z",
+    "lastSyncAt": "2026-05-28T03:01:40.830Z"
   }
 ]
