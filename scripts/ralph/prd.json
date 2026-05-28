@@ -50,6 +50,45 @@
       "priority": 3,
       "passes": true,
       "notes": "AGENTS.md created with sections: Project Overview, File Structure, API Patterns, Validation Rules, PRD 8-Section Skeleton, Citation Format, AI Safety Rules, LLM Integration, Running Tests, Common Gotchas."
+    },
+    {
+      "id": "US-004",
+      "title": "Phase 2 - Structured Block System",
+      "description": "The backend sync outputs observations and interventions wrapped in custom block codes, and the frontend parses them into formatted card elements.",
+      "acceptanceCriteria": [
+        "Backend sync generates custom ```observation-block and ```intervention-block formatted strings",
+        "Frontend HealthWikiRenderer parses these code blocks instead of rendering them as raw code",
+        "Observation and intervention blocks are rendered as custom cards with distinct styles",
+        "Negative cases: If block yaml is corrupted, fall back to simple note card rendering without crashing the application"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Custom markdown parsing wrapper (observation-block and intervention-block) added to HealthWikiRenderer.jsx. Generates interactive cards in UI with strong validation fallback."
+    },
+    {
+      "id": "US-005",
+      "title": "Phase 3 - Attention Score System",
+      "description": "Implement a quantitative server-side Attention Score calculation and connect it to dynamic visual glows in the frontend.",
+      "acceptanceCriteria": [
+        "Observation blocks contain calculated attention_score (0.0 to 1.0) in YAML metadata",
+        "Backend assigns high scores to severe physiological markers or acute neurological deficits",
+        "Frontend maps attention scores dynamically (high scores trigger a red heartbeat shadow glow)"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Heuristics-based quantitative attention scoring added to backend sync. Frontend maps high-attention blocks (>= 0.8) to pulsating red shadow glow cards."
+    },
+    {
+      "id": "US-006",
+      "title": "Phase 4 - Multi-stage AI Pipeline",
+      "description": "Refactor the backend sync controller into sequential stages with transaction isolation and rollback on failure.",
+      "acceptanceCriteria": [
+        "Sync API executes in sequential stages (Extraction -> Structuring & Scoring -> Assembler & Write)",
+        "API errors (e.g. rate limit/parse error) trigger transactional rollbacks, preventing partial writes to disk"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Sync logic split into Stage 1 (Extract), Stage 2 (Score), and Stage 3 (Assemble/Write) with error-rollback safety wrapping."
     }
   ]
 }

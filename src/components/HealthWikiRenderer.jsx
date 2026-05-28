@@ -189,9 +189,94 @@ export default function HealthWikiRenderer({
       ];
     }
 
+    // 4b. 解析结构化观察块与干预块 (Phase 2 & 3)
+    let processedText = raw.replace(/```(observation|intervention)-block[\r\n]([\s\S]*?)```/g, (match, blockType, blockContent) => {
+      try {
+        const lines = blockContent.split('\n');
+        const data = {};
+        lines.forEach(line => {
+          const idx = line.indexOf(':');
+          if (idx !== -1) {
+            const key = line.substring(0, idx).trim();
+            let value = line.substring(idx + 1).trim();
+            if (value.startsWith('"') && value.endsWith('"')) {
+              value = value.substring(1, value.length - 1);
+            } else if (value.startsWith("'") && value.endsWith("'")) {
+              value = value.substring(1, value.length - 1);
+            }
+            data[key] = value;
+          }
+        });
+
+        // 提取 evidence_refs 数组
+        const evidenceRefs = [];
+        let parsingRefs = false;
+        lines.forEach(line => {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('evidence_refs:')) {
+            parsingRefs = true;
+          } else if (parsingRefs) {
+            if (trimmed.startsWith('-')) {
+              const ref = trimmed.substring(1).trim().replace(/['"]/g, '');
+              if (ref) evidenceRefs.push(ref);
+            } else if (trimmed.includes(':')) {
+              parsingRefs = false;
+            }
+          }
+        });
+
+        const content = data.content || '';
+        const subtype = data.subtype || '';
+        const score = data.attention_score ? parseFloat(data.attention_score) : null;
+
+        const citations = evidenceRefs.map(ref => 
+          `<span class="ref-citation-badge" data-log-id="${ref}">🔗 溯源</span>`
+        ).join(' ');
+
+        if (blockType === 'observation') {
+          let glowClass = 'attention-normal';
+          let badgeText = '常规观察';
+          if (score !== null) {
+            if (score >= 0.8) {
+              glowClass = 'attention-high';
+              badgeText = '🚨 高危关注';
+            } else if (score >= 0.5) {
+              glowClass = 'attention-medium';
+              badgeText = '⚠️ 中危关注';
+            }
+          }
+          const scoreBadgeHtml = score !== null ? `<span class="score-badge ${glowClass}-badge">${badgeText} (${score})</span>` : '';
+          return `<div class="structured-block-card observation-card ${glowClass}-card">
+            <div class="card-header">
+              <span class="card-icon">🧠</span>
+              <strong class="card-title">观察 / ${subtype}</strong>
+              ${scoreBadgeHtml}
+            </div>
+            <div class="card-body">
+              <span class="card-content-text">${content}</span> ${citations}
+            </div>
+          </div>`;
+        } else {
+          return `<div class="structured-block-card intervention-card">
+            <div class="card-header">
+              <span class="card-icon">🌿</span>
+              <strong class="card-title">干预 / ${subtype}</strong>
+            </div>
+            <div class="card-body">
+              <span class="card-content-text">${content}</span> ${citations}
+            </div>
+          </div>`;
+        }
+      } catch (err) {
+        console.error("YAML parsing fallback triggered:", err);
+        // 负面测试兜底：若 YAML 解析损坏，优雅降级渲染而不崩溃
+        return `<div class="alert-block alert-note"><strong>📋 结构化数据异常</strong><p>${blockContent.split('\n').join('<br/>')}</p></div>`;
+      }
+    });
+
     // 5. 将医疗警告编译为高度定制的 CSS Block 元素
     // 正则匹配并替换 > [!IMPORTANT] 等语法
-    let compiledText = raw.replace(/>\s*\[!(IMPORTANT|WARNING|TIP|NOTE)\][\r\n]([\s\S]*?)(?=\n\n|\n[^>])/g, (match, type, content) => {
+    let compiledText = processedText.replace(/>\s*\[!(IMPORTANT|WARNING|TIP|NOTE)\][\r\n]([\s\S]*?)(?=\n\n|\n[^>])/g, (match, type, content) => {
       const cleanContent = content.split('\n').map(line => line.replace(/^>\s?/, '')).join('<br/>');
       const label = type === 'IMPORTANT' ? '🚨 医疗红线与过敏史' : 
                     type === 'WARNING' ? '⚠️ 指标异常与警示' : 

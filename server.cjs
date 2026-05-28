@@ -353,8 +353,157 @@ app.post('/api/clients/:id/sync', async (req, res) => {
 
   const currentWiki = readWikiPages(id);
 
-  // 构造大模型 Prompt
-  const prompt = `你是一个非常专业且细心的医疗健康档案助理，你的职责是根据新增的沟通记录，增量且克制地更新客户的专属 Markdown Wiki 档案。
+  try {
+    // -------------------------------------------------------------
+    // Stage 1: Fact Parse & Categorization
+    // -------------------------------------------------------------
+    console.log(`[Stage 1] Extracting clinical facts from ${unsyncedLogs.length} logs for client ${id}...`);
+    const stage1Prompt = `你是一个非常专业且细心的医疗事实提取助手。请从下面新增的沟通记录中提取所有的临床观察与医疗干预事实（例如：新增诊断、主诉症状、生理指标数值、化验/CT检查结果、用药变更、留置管道、护理措施等）。
+严禁凭空编造事实或添加沟通记录中未提及的内容。对于每一条事实，必须明确匹配其来自哪一条沟通记录 of ID。
+
+请将提取的事实分类为：
+1. "observation"：临床观察，包括：
+   - "signal"：基础生理信号数值（血压、心率、呼吸、体温、血氧、血糖、HRV 等具体数字）
+   - "finding"：检查检验结果（化验单、影像CT/X光/MRI、病理检查等）
+   - "functional"：患者活动、睡眠、认知、语言、神志、瘫痪或反射异常等功能状态变化
+2. "intervention"：医疗干预，包括：
+   - "treatment"：药物治疗、用药变更、输液、手术等
+   - "pipeline"：留置管道（气管插管、深静脉置管、胃管、尿管等）
+   - "protection"：安全约束、防坠床防护等
+   - "care"：体位护理、翻身排痰、皮肤护理、饮食限制等
+
+新增沟通记录内容如下：
+${unsyncedLogs.map(log => `
+[ID: ${log.id}] [类型: ${log.type}] [标题: ${log.title}] [时间: ${log.timestamp}]
+内容: 
+${log.content}
+`).join('\n\n')}
+
+请直接输出一个合法的 JSON 对象，格式必须符合以下示例，不要有任何 Markdown 代码块包裹或解释性前缀后缀：
+{
+  "facts": [
+    {
+      "type": "observation",
+      "subtype": "signal",
+      "content": "血压 198/112 mmHg",
+      "log_id": "log_..."
+    },
+    {
+      "type": "observation",
+      "subtype": "functional",
+      "content": "神志呈嗜睡/浅昏迷状态，右侧肢体肌力 0 级",
+      "log_id": "log_..."
+    },
+    {
+      "type": "intervention",
+      "subtype": "treatment",
+      "content": "静脉滴注甘露醇 250ml",
+      "log_id": "log_..."
+    }
+  ]
+}`;
+
+    const stage1Response = await openai.chat.completions.create({
+      model: process.env.ARK_MODEL || 'doubao-1.5-pro-32k-250115',
+      messages: [
+        { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
+        { role: 'user', content: stage1Prompt }
+      ],
+      temperature: 0.1
+    });
+
+    const stage1Content = stage1Response.choices[0]?.message?.content || '{}';
+    let cleanedStage1 = stage1Content.trim();
+    if (cleanedStage1.startsWith('```')) {
+      const match = cleanedStage1.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (match) cleanedStage1 = match[1].trim();
+    }
+
+    let parsedFactsObj;
+    try {
+      parsedFactsObj = JSON.parse(cleanedStage1);
+    } catch (e) {
+      console.error('Failed to parse Stage 1 JSON:', cleanedStage1);
+      throw new Error('临床事实解析失败：' + e.message);
+    }
+
+    const facts = parsedFactsObj.facts || [];
+    console.log(`[Stage 1] Successfully extracted ${facts.length} clinical facts.`);
+
+    // -------------------------------------------------------------
+    // Stage 2: Heuristic-based Attention Scoring
+    // -------------------------------------------------------------
+    console.log('[Stage 2] Calculating attention scores for observations...');
+    facts.forEach(fact => {
+      if (fact.type === 'observation') {
+        let score = 0.3; // 默认基础分
+        const text = fact.content.toLowerCase();
+
+        // 1. 血氧饱和度 (SpO2) 异常
+        const spo2Match = text.match(/spo2\s*(?:[<≤：:]\s*|仅|是|为)?\s*(\d+)%/i);
+        if (spo2Match) {
+          const val = parseInt(spo2Match[1]);
+          if (val < 90) score = Math.max(score, 0.95);
+          else if (val < 95) score = Math.max(score, 0.7);
+        }
+
+        // 2. 血压异常
+        const bpMatch = text.match(/(\d{3})\s*\/\s*(\d{2,3})/);
+        if (bpMatch) {
+          const sys = parseInt(bpMatch[1]);
+          const dia = parseInt(bpMatch[2]);
+          if (sys >= 180 || dia >= 110) score = Math.max(score, 0.9);
+          else if (sys >= 140 || dia >= 90) score = Math.max(score, 0.6);
+        }
+
+        // 3. 血糖异常
+        const glucoseMatch = text.match(/(?:血糖|指尖血糖|空腹血糖|餐后血糖)\s*(?:[：:]|是|为)?\s*(\d+(?:\.\d+)?)\s*mmol/i);
+        if (glucoseMatch) {
+          const val = parseFloat(glucoseMatch[1]);
+          if (val > 10.0 || val < 3.9) score = Math.max(score, 0.85);
+          else if (val > 7.0) score = Math.max(score, 0.6);
+        }
+
+        // 4. 重大神经与意识受损核心诊断/主诉关键词
+        const highPriorityKeywords = [
+          '昏迷', '嗜睡', '意识障碍', '失语', '偏瘫', '肌力0级', '肌力1级', '肌力2级', '肌力3级',
+          '脑出血', '瞳孔反射', '脑疝', '呼吸困难', '窒息', '大出血', '呼吸衰竭'
+        ];
+        const mediumPriorityKeywords = [
+          '骨折', '发热', '体温过高', '心率过快', '心动过速', '胸闷', '气促', '低血压'
+        ];
+
+        for (const kw of highPriorityKeywords) {
+          if (text.includes(kw)) {
+            score = Math.max(score, 0.9);
+          }
+        }
+        for (const kw of mediumPriorityKeywords) {
+          if (text.includes(kw)) {
+            score = Math.max(score, 0.75);
+          }
+        }
+
+        fact.attention_score = parseFloat(score.toFixed(2));
+      }
+    });
+    console.log('[Stage 2] Attention scoring complete.');
+
+    // -------------------------------------------------------------
+    // Stage 3: Assembler & Merge into Wiki pages
+    // -------------------------------------------------------------
+    console.log('[Stage 3] Merging clinical facts and generating formatted markdown blocks...');
+    
+    // 格式化传入 Stage 3 的事实列表，确保大模型获得清晰的数据关联
+    const formattedFactsForLLM = facts.map((f, idx) => {
+      if (f.type === 'observation') {
+        return `[事实 #${idx}] 类型: observation, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'}, 推荐 Attention Score: ${f.attention_score}`;
+      } else {
+        return `[事实 #${idx}] 类型: intervention, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'}`;
+      }
+    }).join('\n');
+
+    const stage3Prompt = `你是一个非常专业且细心的医疗健康档案助理。请根据下面给出的【新增结构化事实】，增量更新客户的专属 Markdown Wiki 档案。
 
 ### 客户基本信息
 姓名: ${client.name}
@@ -368,24 +517,33 @@ ${Object.entries(currentWiki).map(([filename, content]) => `
 ${content}
 `).join('\n')}
 
-### 待合并的新增沟通记录 (ASR/企微/OCR)：
-${unsyncedLogs.map(log => `
-[ID: ${log.id}] [类型: ${log.type}] [标题: ${log.title}] [时间: ${log.timestamp}]
-内容: 
-${log.content}
-`).join('\n\n') }
+### 待合并的新增结构化事实：
+${formattedFactsForLLM}
 
-### 更新指示与规则（极其重要）：
-1. **增量更新**：只需将新沟通记录中体现的【新增诊断、近期主诉、用药变更、生活建议、企微沟通核心事件】增量填入或追加修改至对应的文件中。
-2. **保护历史信息**：严禁删除已有的重要病史和过敏史。如果过敏史等警示信息在沟通中被确认，请在 index.md 的【红线警示】中追加。
-3. **输出格式**：请直接输出一个合法的 JSON 对象，Key 是文件名（如 "index.md", "medical_history.md", "medication_plan.md", "communication_timeline.md"），Value 是更新后的完整 Markdown 内容。
-4. **输出限制**：请不要有任何的解释性前缀、后缀，也不要用 \`\`\`json 标记。直接输出 JSON 内容。如果某个文件不需要修改，也请把修改后的（与原内容一致）完整内容放进 Value 中。
-5. **双向溯源要求**：每一项新增加的临床表现、检查指标、诊断意见、用药方案、随访结论和生活建议，必须在其句末附加 \`[🔗 溯源](log_id)\` 标记（其中 log_id 必须是新增沟通记录中对应的 [ID: log_...] 标识），严禁凭空编造 log_id。
-6. **科室分层规范**：
-   - **生理信号 (Physiologic Signals)**：仅记录血压、心率、血氧、血糖、体温、HRV 等具体数值及日期。
-   - **化验结果 (Laboratory Findings)**：记录实验室检查、影像学（CT/X线/MRI等）、病理等检查项目、数值/描述及异常标记。
-   - **功能变化 (Functional Changes)**：记录患者的活动能力、睡眠、认知、情绪及日常生活功能的变化，**必须包含神经系统受损或机械辅助引起的功能缺失/限制（如偏瘫、肢体肌力下降、失语、神志昏迷/嗜睡、瞳孔反射迟钝、机械通气等）**。
-   - **当前干预措施 (Active Interventions)**：记录当前正在执行的治疗、护理级别、管道留置（如气管插管、深静脉置管、胃管、尿管等）、安全防护（腕部约束、防坠床）、皮肤护理（波动气垫床、2小时整体轴线翻身）及用药。
+### 更新与结构化 Block 指示（极其重要）：
+1. **增量更新**：只需将新事实中体现的内容增量填入或追加修改至对应的文件中。
+2. **保护历史信息**：严禁删除已有的重要病史和过敏史。如果过敏史等警示信息在事实中被确认，请在 index.md 的【红线警示】中追加。
+3. **观察与干预结构化 Block 语法要求（PRD 核心要求）**：
+   - 所有新增加的 **observation**（如生理信号、化验结果、功能变化）必须在其展示的列表中使用以下自定义 Block 格式输出（不要输出为普通的 Markdown 文本）：
+     \`\`\`observation-block
+     type: observation
+     subtype: signal | finding | functional
+     content: "具体内容描述"
+     evidence_refs:
+       - 溯源ID
+     attention_score: 注意力分数
+     \`\`\`
+     其中 \`attention_score\` 必须取我们给出的“推荐 Attention Score”数值。\`evidence_refs\` 是包含“溯源ID”的 YAML 列表。
+   - 所有新增加的 **intervention**（如用药、治疗、管道、护理措施）必须在对应的干预措施列表中使用以下自定义 Block 格式输出：
+     \`\`\`intervention-block
+     type: intervention
+     subtype: treatment | pipeline | protection | care
+     content: "具体内容描述"
+     evidence_refs:
+       - 溯源ID
+     \`\`\`
+4. **AI 安全红线**：严禁包含以下诊断性或恐慌性词语：\`AI确诊\`、\`AI诊断为\`、\`人工智能诊断\`、\`confirmed by AI\`、\`AI confirms\`、\`危及生命\`、\`life-threatening\`、\`AI判断\`。仅客观记录观察，禁止越权诊断！
+5. **输出格式**：请直接输出一个合法的 JSON 对象，Key 是文件名（如 "index.md", "medical_history.md", "medication_plan.md", "communication_timeline.md"），Value 是更新后的完整 Markdown 内容。不要有任何前缀、后缀，也不要用 \`\`\`json 标记。
 
 示例输出格式:
 {
@@ -395,36 +553,32 @@ ${log.content}
   "communication_timeline.md": "# 随访互动..."
 }`;
 
-  try {
-    const response = await openai.chat.completions.create({
+    const stage3Response = await openai.chat.completions.create({
       model: process.env.ARK_MODEL || 'doubao-1.5-pro-32k-250115',
       messages: [
         { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
-        { role: 'user', content: prompt }
+        { role: 'user', content: stage3Prompt }
       ],
-      temperature: 0.2
+      temperature: 0.1
     });
 
-    const contentText = response.choices[0]?.message?.content || '{}';
-    
-    // 清理大模型可能输出的 ```json 和 ``` 标记
-    let cleanedText = contentText.trim();
-    if (cleanedText.startsWith('```')) {
-      const match = cleanedText.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (match) cleanedText = match[1].trim();
+    const stage3Content = stage3Response.choices[0]?.message?.content || '{}';
+    let cleanedStage3 = stage3Content.trim();
+    if (cleanedStage3.startsWith('```')) {
+      const match = cleanedStage3.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (match) cleanedStage3 = match[1].trim();
     }
 
-    const updatedWiki = JSON.parse(cleanedText);
+    const updatedWiki = JSON.parse(cleanedStage3);
 
-    // 验证返回的 Wiki 页面是否包含必要的 md 文件，避免模型输出错误覆盖原档案
+    // 验证返回的 Wiki 页面是否有效
     const fileKeys = ['index.md', 'medical_history.md', 'medication_plan.md', 'communication_timeline.md'];
     const validUpdate = fileKeys.some(key => updatedWiki[key]);
-
     if (!validUpdate) {
       throw new Error('大模型未能返回有效的 Wiki 页面 JSON 数据');
     }
 
-    // 写入更新的 Wiki
+    // 写入更新后的 Wiki 页面（若报错则不进行物理写入，保障事务隔离）
     writeWikiPages(id, updatedWiki);
 
     // 将这些 logs 标记为已同步
@@ -444,8 +598,8 @@ ${log.content}
     });
 
   } catch (err) {
-    console.error('豆包模型同步失败:', err);
-    res.status(500).json({ error: '同步过程中调用大模型失败: ' + err.message });
+    console.error('多阶段同步失败:', err);
+    res.status(500).json({ error: '同步过程中处理多阶段 AI Pipeline 失败: ' + err.message });
   }
 });
 

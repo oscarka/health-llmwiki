@@ -381,6 +381,83 @@ async function testCleanup() {
   assert('Deleted client logs returns 404', s4 === 404, s4);
 }
 
+// ─── Section 6: Phase 2/3/4 Structured Blocks & Pipeline ───────────────────
+
+async function testStructuredBlocksAndPipeline() {
+  section('12. Phase 2/3/4 - Structured Blocks, Scoring, and Pipeline');
+
+  // Create a fresh client for this specific test
+  const { status: s1, data: client } = await req('POST', '/api/clients', {
+    name: 'Pipeline Test 管道流测试',
+    age: 50,
+    gender: '男',
+    phone: '13911112222',
+    allergies: '阿司匹林过敏'
+  });
+  assert('POST /api/clients returns 201', s1 === 201, s1);
+  const clientId = client?.id;
+  if (!clientId) return;
+
+  try {
+    // 1. Post a severe observation log and a medication intervention log
+    const { status: l1 } = await req('POST', `/api/clients/${clientId}/logs`, {
+      type: 'ocr',
+      content: '患者于14:30送至急诊，测血氧饱和度仅为 88%（SpO2: 88%），呼吸促，口角歪斜。'
+    });
+    assert('POST observation log returns 201', l1 === 201, l1);
+
+    const { status: l2 } = await req('POST', `/api/clients/${clientId}/logs`, {
+      type: 'phone',
+      content: '医生建议：立即予鼻导管低流量吸氧，持续泵入硝普钠控制血压，并给予每2小时轴线翻身。'
+    });
+    assert('POST intervention log returns 201', l2 === 201, l2);
+
+    // 2. Trigger multi-stage sync
+    console.log(`  Triggering sync for ${clientId}...`);
+    const { status: syncStatus, data: syncData } = await req('POST', `/api/clients/${clientId}/sync`);
+    assert('POST /sync returns 200', syncStatus === 200, syncStatus);
+    assert('Sync returns wikiUpdated=true', syncData && syncData.wikiUpdated === true, syncData);
+
+    // 3. Get the synced wiki and verify structure blocks are generated
+    const { data: wiki } = await req('GET', `/api/clients/${clientId}/wiki`);
+    const medHistory = wiki?.['medical_history.md'] || '';
+    const medPlan = wiki?.['medication_plan.md'] || '';
+
+    // Check Phase 2 structured block syntax
+    assert('medical_history.md contains observation-block code wrappers',
+      medHistory.includes('```observation-block') || medHistory.includes('``` observation-block'),
+      medHistory.substring(0, 1000)
+    );
+    assert('medication_plan.md contains intervention-block code wrappers',
+      medPlan.includes('```intervention-block') || medPlan.includes('``` intervention-block'),
+      medPlan.substring(0, 1000)
+    );
+
+    // Check Phase 3 quantitative attention score
+    assert('observation-block contains attention_score',
+      medHistory.includes('attention_score:'),
+      medHistory.substring(0, 1000)
+    );
+
+    // Check that attention score for severe SpO2 88% is high (>= 0.8)
+    const scoreMatch = medHistory.match(/attention_score:\s*(\d+(?:\.\d+)?)/);
+    const scoreVal = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
+    assert('High-priority alert has attention_score >= 0.8',
+      scoreVal >= 0.8,
+      `Calculated score: ${scoreVal}`
+    );
+
+    // Check negative test (Phase 4): Try syncing a client with no logs
+    const { status: syncNeg, data: dataNeg } = await req('POST', `/api/clients/${clientId}/sync`);
+    assert('POST /sync with no unsynced logs returns 200', syncNeg === 200, syncNeg);
+    assert('Sync indicates wikiUpdated=false', dataNeg && dataNeg.wikiUpdated === false, dataNeg);
+
+  } finally {
+    // Cleanup
+    await req('DELETE', `/api/clients/${clientId}`);
+  }
+}
+
 // ─── Main Runner ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -407,6 +484,7 @@ async function main() {
     await testCognitiveSkeletonStructure();
     await testCognitiveSafetyRules();
     await testChatEndpoint();
+    await testStructuredBlocksAndPipeline();
     await testCleanup();
   } catch (err) {
     console.error('\n💥 Unexpected test error:', err);
