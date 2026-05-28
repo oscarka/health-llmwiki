@@ -1,0 +1,65 @@
+{
+  "project": "LLMWiki Health Cognitive System",
+  "branchName": "ralph/wiki-prd-compliance",
+  "description": "Fix API violations and enforce PRD cognitive skeleton - 11 tests currently failing in tests/test_api.cjs",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Fix: POST /api/clients/:id/logs must reject invalid log types",
+      "description": "The log type field must be one of: phone | video | wechat | ocr. Currently, any string (e.g. 'sms', 'fax') is silently accepted with 201. Add strict enum validation in server.cjs POST /api/clients/:id/logs route.",
+      "acceptanceCriteria": [
+        "POST /logs with type='sms' returns 400 { error: '...' }",
+        "POST /logs with type='fax' returns 400 { error: '...' }",
+        "POST /logs with type='' (empty) returns 400",
+        "POST /logs with type='phone' still returns 201 (valid)",
+        "POST /logs with type='video' still returns 201 (valid)",
+        "POST /logs with type='wechat' still returns 201 (valid)",
+        "POST /logs with type='ocr' still returns 201 (valid)",
+        "Run: node tests/test_api.cjs - section 5 & 6 must fully pass"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Edit the POST /api/clients/:id/logs route in server.cjs. Add: const VALID_TYPES = ['phone','video','wechat','ocr']; if (!VALID_TYPES.includes(type)) return res.status(400).json({ error: '类型必须是以下之一: phone, video, wechat, ocr' });"
+    },
+    {
+      "id": "US-002",
+      "title": "Fix: Default wiki template must include PRD 8-section cognitive skeleton",
+      "description": "The createDefaultWiki() function in server.cjs produces 4 markdown pages. These pages are missing 7 of the 8 PRD-required sections. Update the template strings to include all sections. The medical_history.md must have at least 3 ## sections.",
+      "acceptanceCriteria": [
+        "New client index.md contains text matching /当前主要关注|Current Key Concerns/",
+        "New client index.md contains text matching /时间轴|Timeline/",
+        "New client medical_history.md contains text matching /生理信号|Physiologic Signals/",
+        "New client medical_history.md contains text matching /化验结果|Laboratory Findings/",
+        "New client medical_history.md contains text matching /功能变化|Functional Changes/",
+        "New client medical_history.md has at least 2 ## sections (currently only 1)",
+        "New client medication_plan.md contains text matching /干预措施|Active Interventions/",
+        "New client communication_timeline.md contains text matching /监测目标|Monitoring Targets/",
+        "New client communication_timeline.md contains text matching /溯源证据|Source Evidence/",
+        "communication_timeline.md mentions 溯源 or 🔗 citation format",
+        "Run: node tests/test_api.cjs - sections 7 & 8 must fully pass"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Edit the createDefaultWiki() function in server.cjs. Update all 4 template strings. medical_history.md needs sections: 生理信号, 化验结果, 功能变化. communication_timeline.md needs: 监测目标, 原始溯源证据 sections with citation format [🔗 溯源](log_id) explained."
+    },
+    {
+      "id": "US-003",
+      "title": "Write AGENTS.md documenting all patterns for future iterations",
+      "description": "Write AGENTS.md at the project root with all codebase patterns discovered. This is required by ralph for future iterations and helps avoid repeating work.",
+      "acceptanceCriteria": [
+        "AGENTS.md exists at /Users/cc/llmwiki/AGENTS.md",
+        "Documents server.cjs route error response shape { error: string }",
+        "Documents valid log types: phone | video | wechat | ocr",
+        "Documents wiki storage: data/wiki/{clientId}/*.md",
+        "Documents log storage: data/logs/{clientId}.json",
+        "Documents PRD 8 cognitive sections (names in Chinese and English)",
+        "Documents citation format [🔗 溯源](log_id)",
+        "Documents that tests run with: node tests/test_api.cjs",
+        "Run: node tests/test_api.cjs - ALL 84 tests must pass"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Create AGENTS.md at /Users/cc/llmwiki/AGENTS.md with comprehensive documentation."
+    }
+  ]
+}
