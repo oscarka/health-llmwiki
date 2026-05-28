@@ -207,8 +207,9 @@ app.post('/api/clients', (req, res) => {
   if (!name) return res.status(400).json({ error: '姓名是必填项' });
 
   const clients = readClients();
+  const randomSuffix = Math.random().toString(36).substring(2, 6);
   const newClient = {
-    id: `client_${Date.now()}`,
+    id: `client_${Date.now()}_${randomSuffix}`,
     name,
     age: age ? parseInt(age) : null,
     gender,
@@ -314,8 +315,9 @@ app.post('/api/clients/:id/logs', (req, res) => {
   if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
 
   const logs = readLogs(id);
+  const randomSuffix = Math.random().toString(36).substring(2, 6);
   const newLog = {
-    id: `log_${Date.now()}`,
+    id: `log_${Date.now()}_${randomSuffix}`,
     type,
     title: title || `${type === 'phone' ? '电话问诊' : type === 'video' ? '视频问诊' : type === 'wechat' ? '企微记录' : '单证OCR'} (${new Date().toLocaleDateString()})`,
     content,
@@ -368,16 +370,22 @@ ${content}
 
 ### 待合并的新增沟通记录 (ASR/企微/OCR)：
 ${unsyncedLogs.map(log => `
-[类型: ${log.type}] [标题: ${log.title}] [时间: ${log.timestamp}]
+[ID: ${log.id}] [类型: ${log.type}] [标题: ${log.title}] [时间: ${log.timestamp}]
 内容: 
 ${log.content}
-`).join('\n\n')}
+`).join('\n\n') }
 
 ### 更新指示与规则（极其重要）：
 1. **增量更新**：只需将新沟通记录中体现的【新增诊断、近期主诉、用药变更、生活建议、企微沟通核心事件】增量填入或追加修改至对应的文件中。
 2. **保护历史信息**：严禁删除已有的重要病史和过敏史。如果过敏史等警示信息在沟通中被确认，请在 index.md 的【红线警示】中追加。
 3. **输出格式**：请直接输出一个合法的 JSON 对象，Key 是文件名（如 "index.md", "medical_history.md", "medication_plan.md", "communication_timeline.md"），Value 是更新后的完整 Markdown 内容。
 4. **输出限制**：请不要有任何的解释性前缀、后缀，也不要用 \`\`\`json 标记。直接输出 JSON 内容。如果某个文件不需要修改，也请把修改后的（与原内容一致）完整内容放进 Value 中。
+5. **双向溯源要求**：每一项新增加的临床表现、检查指标、诊断意见、用药方案、随访结论和生活建议，必须在其句末附加 \`[🔗 溯源](log_id)\` 标记（其中 log_id 必须是新增沟通记录中对应的 [ID: log_...] 标识），严禁凭空编造 log_id。
+6. **科室分层规范**：
+   - **生理信号 (Physiologic Signals)**：仅记录血压、心率、血氧、血糖、体温、HRV 等具体数值及日期。
+   - **化验结果 (Laboratory Findings)**：记录实验室检查、影像学（CT/X线/MRI等）、病理等检查项目、数值/描述及异常标记。
+   - **功能变化 (Functional Changes)**：记录患者的活动能力、睡眠、认知、情绪及日常生活功能的变化，**必须包含神经系统受损或机械辅助引起的功能缺失/限制（如偏瘫、肢体肌力下降、失语、神志昏迷/嗜睡、瞳孔反射迟钝、机械通气等）**。
+   - **当前干预措施 (Active Interventions)**：记录当前正在执行的治疗、护理级别、管道留置（如气管插管、深静脉置管、胃管、尿管等）、安全防护（腕部约束、防坠床）、皮肤护理（波动气垫床、2小时整体轴线翻身）及用药。
 
 示例输出格式:
 {
