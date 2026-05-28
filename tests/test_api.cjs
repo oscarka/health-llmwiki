@@ -221,48 +221,72 @@ async function testLogs() {
 }
 
 // ─── Section 4: PRD 8-Section Cognitive Skeleton ─────────────────────────────
+// Uses a fresh, unmodified client to verify the DEFAULT template structure.
 
 async function testCognitiveSkeletonStructure() {
   section('7. PRD 8-Section Cognitive Skeleton - Default Wiki Structure');
-  if (!testClientId) { console.log('  ⚠ Skipping: no test client'); return; }
 
-  const { data: wiki } = await req('GET', `/api/clients/${testClientId}/wiki`);
+  // Create a fresh client so we test the UNMODIFIED default template
+  const { status: cs, data: cd } = await req('POST', '/api/clients', {
+    name: 'Skeleton Test 骨架测试',
+    age: 30, gender: '男', phone: '13900009999', allergies: '无'
+  });
+  if (cs !== 201) { console.log('  ⚠ Could not create skeleton test client'); return; }
+  const skeletonClientId = cd.id;
 
-  // Section 1: Current Key Concerns in index.md
-  const index = wiki?.['index.md'] || '';
-  assert('index.md has "当前主要关注" or "Current Key Concerns"',
-    /当前主要关注|Current Key Concerns|主要关注/i.test(index), index.substring(0, 300));
+  try {
+    const { data: wiki } = await req('GET', `/api/clients/${skeletonClientId}/wiki`);
 
-  // Section 2: Timeline in index.md
-  assert('index.md has "时间轴" or "Timeline"',
-    /时间轴|Timeline|事件轴/i.test(index), index.substring(0, 300));
+    // Section 1: Current Key Concerns in index.md
+    const index = wiki?.['index.md'] || '';
+    assert('index.md has "当前主要关注" or "Current Key Concerns"',
+      /当前主要关注|Current Key Concerns|主要关注/i.test(index), index.substring(0, 300));
 
-  // Section 3: Physiologic Signals in medical_history.md
-  const med = wiki?.['medical_history.md'] || '';
-  assert('medical_history.md has "生理信号" or "Physiologic Signals"',
-    /生理信号|Physiologic Signals|体征信号/i.test(med), med.substring(0, 300));
+    // Section 2: Timeline in index.md
+    assert('index.md has "时间轴" or "Timeline"',
+      /时间轴|Timeline|事件轴/i.test(index), index.substring(0, 300));
 
-  // Section 4: Laboratory Findings in medical_history.md
-  assert('medical_history.md has "化验结果" or "Laboratory Findings"',
-    /化验结果|Laboratory Findings|实验室检查|化验/i.test(med), med.substring(0, 300));
+    // Section 3: Physiologic Signals in medical_history.md
+    const med = wiki?.['medical_history.md'] || '';
+    assert('medical_history.md has "生理信号" or "Physiologic Signals"',
+      /生理信号|Physiologic Signals|体征信号/i.test(med), med.substring(0, 300));
 
-  // Section 5: Functional Changes in medical_history.md
-  assert('medical_history.md has "功能变化" or "Functional Changes"',
-    /功能变化|Functional Changes|功能状态/i.test(med), med.substring(0, 300));
+    // Section 4: Laboratory Findings in medical_history.md
+    assert('medical_history.md has "化验结果" or "Laboratory Findings"',
+      /化验结果|Laboratory Findings|实验室检查|化验/i.test(med), med.substring(0, 300));
 
-  // Section 6: Active Interventions in medication_plan.md
-  const meds = wiki?.['medication_plan.md'] || '';
-  assert('medication_plan.md has "干预措施" or "Active Interventions"',
-    /干预措施|Active Interventions|当前干预/i.test(meds), meds.substring(0, 300));
+    // Section 5: Functional Changes in medical_history.md
+    assert('medical_history.md has "功能变化" or "Functional Changes"',
+      /功能变化|Functional Changes|功能状态/i.test(med), med.substring(0, 300));
 
-  // Section 7: Monitoring Targets in communication_timeline.md
-  const comm = wiki?.['communication_timeline.md'] || '';
-  assert('communication_timeline.md has "监测目标" or "Monitoring Targets"',
-    /监测目标|Monitoring Targets|监控目标/i.test(comm), comm.substring(0, 300));
+    // Section 6: Active Interventions in medication_plan.md
+    const meds = wiki?.['medication_plan.md'] || '';
+    assert('medication_plan.md has "干预措施" or "Active Interventions"',
+      /干预措施|Active Interventions|当前干预/i.test(meds), meds.substring(0, 300));
 
-  // Section 8: Source Evidence in communication_timeline.md
-  assert('communication_timeline.md has "溯源证据" or "Source Evidence"',
-    /溯源证据|Source Evidence|原始溯源|证据来源/i.test(comm), comm.substring(0, 300));
+    // Section 7: Monitoring Targets in communication_timeline.md
+    const comm = wiki?.['communication_timeline.md'] || '';
+    assert('communication_timeline.md has "监测目标" or "Monitoring Targets"',
+      /监测目标|Monitoring Targets|监控目标/i.test(comm), comm.substring(0, 300));
+
+    // Section 8: Source Evidence in communication_timeline.md
+    assert('communication_timeline.md has "溯源证据" or "Source Evidence"',
+      /溯源证据|Source Evidence|原始溯源|证据来源/i.test(comm), comm.substring(0, 300));
+
+    // Section 8b: medical_history must have multiple ## sections (not just 1)
+    assert('medical_history.md separates content into >= 2 ## sections (PRD skeleton)',
+      (med.match(/^##\s+/mg) || []).length >= 2,
+      `Found ${(med.match(/^##\s+/mg) || []).length} ## sections`
+    );
+
+    // Citation format documented in communication_timeline
+    assert('communication_timeline.md documents citation format [🔗 溯源]',
+      /溯源|🔗|原始溯源/i.test(comm), comm.substring(0, 200));
+
+  } finally {
+    // Always cleanup the skeleton test client
+    await req('DELETE', `/api/clients/${skeletonClientId}`);
+  }
 }
 
 // ─── Section 5: Cognitive Safety Rules ──────────────────────────────────────
@@ -290,13 +314,9 @@ async function testCognitiveSafetyRules() {
     index.substring(0, 300)
   );
 
-  // PRD Rule: Observation vs interpretation separation — medical_history should
-  // have labeled "观察" or "解读" sections, or at least clear ## sections
-  const med = wiki?.['medical_history.md'] || '';
-  assert('medical_history.md separates content into ## sections',
-    (med.match(/^##\s+/mg) || []).length >= 2,
-    `Found ${(med.match(/^##\s+/mg) || []).length} ## sections`
-  );
+  // PRD Rule: The DEFAULT template's medical_history (from a fresh client) should have >= 2 ##
+  // Note: we use testClientId here which may have been overwritten by wiki PUT test.
+  // We just check that allContent has no forbidden phrases — the ## check is done in section 7.
 
   // PRD: Evidence citation format [🔗 溯源](log_id) must be documented/used
   // At minimum, the source evidence section should mention the citation format

@@ -92,7 +92,7 @@ const deleteClientData = (clientId) => {
   }
 };
 
-// ──────────────────── 默认 Wiki 模板 ────────────────────
+// ──────────────────── 默认 Wiki 模板（PRD 8分区认知骨架）────────────────────
 const createDefaultWiki = (client) => {
   const ageStr = client.age ? `${client.age}岁` : '未知年龄';
   const genderStr = client.gender || '未知性别';
@@ -101,12 +101,22 @@ const createDefaultWiki = (client) => {
 > [!IMPORTANT]
 > **红线警示（过敏史/慢性病）**：${client.allergies || '无登记'}
 
-## 1. 客户基本画像
+## 1. 当前主要关注 (Current Key Concerns)
+*(此处由 AI 自动汇总最近最需要关注的健康信号，无原始记录时请手动录入)*
+* 暂无 AI 汇总关注项，请录入第一条沟通记录后同步 Wiki。
+
+## 2. 事件时间轴 (Timeline)
+*(按时间倒序排列重要健康事件，AI 将在每次同步后自动追加)*
+| 日期 | 事件类型 | 摘要 |
+|------|----------|------|
+| — | — | 暂无记录 |
+
+## 3. 客户基本画像
 * **基本信息**：${genderStr}，${ageStr}，电话：${client.phone || '未录入'}。
 * **主要诊断**：待大模型汇总录入。
 * **近期主要健康主诉**：暂无记录。
 
-## 2. 快捷导航
+## 4. 快捷导航
 * [既往史与诊疗时间轴](medical_history.md)
 * [用药方案与生活医嘱](medication_plan.md)
 * [随访互动摘要](communication_timeline.md)
@@ -116,27 +126,72 @@ const createDefaultWiki = (client) => {
 ## 1. 既往病史
 * **慢性病**：暂无登记。
 * **手术/外伤史**：暂无登记。
+* **家族史**：暂无登记。
 
-## 2. 诊疗轨迹时间轴
+## 2. 生理信号 (Physiologic Signals)
+*(心率、血压、血氧、体温、HRV等穿戴/检测数据)*
+| 日期 | 指标 | 数值 | 参考范围 | 状态 |
+|------|------|------|----------|------|
+| — | — | — | — | — |
+
+## 3. 化验结果 (Laboratory Findings)
+*(血常规、生化、影像学、病理等实验室检查结果)*
+| 日期 | 检查项目 | 结果 | 参考值 | 异常标记 |
+|------|----------|------|--------|----------|
+| — | — | — | — | — |
+
+## 4. 功能变化 (Functional Changes)
+*(活动能力、睡眠、认知、情绪、日常生活功能的主观与客观变化)*
+* 暂无记录。
+
+## 5. 诊疗轨迹时间轴
 *(以下内容将随医生问诊及单证 OCR 录入由大模型自动追加并精简)*
 暂无记录。
 `,
     'medication_plan.md': `# 用药方案与生活医嘱
 
-## 1. 当前用药方案
+## 1. 当前干预措施 (Active Interventions)
+*(当前正在执行的用药、手术、物理治疗、营养干预等)*
+| 干预类型 | 具体内容 | 剂量/频次 | 开始日期 | 负责医生 |
+|----------|----------|-----------|----------|----------|
+| 用药 | 暂无记录 | — | — | — |
+
+## 2. 当前用药方案
 暂无记录。
 
-## 2. 生活指导及预防建议
+## 3. 生活指导及预防建议
 暂无记录。
+
+> [!TIP]
+> 💡 **生活医嘱提示**：以下由医生/健康管理师下达的生活指导将在沟通记录同步后自动汇总至此处。
 `,
     'communication_timeline.md': `# 随访互动与沟通摘要
 
 ## 1. 互动摘要时间线
 *(这里记录企微、电话、视频沟通的核心简报，帮助快速了解最近联系动态)*
 暂无记录。
+
+## 2. 监测目标 (Monitoring Targets)
+*(当前阶段需要重点监测的指标和随访频率)*
+| 监测指标 | 目标范围 | 监测频率 | 状态 |
+|----------|----------|----------|------|
+| — | — | — | 暂无设定 |
+
+## 3. 原始溯源证据 (Source Evidence)
+*(每条 Wiki 内容都应能追溯至原始沟通记录、影像单据或穿戴数据)*
+
+**溯源引用格式**：在 Wiki 内容中使用 \`[🔗 溯源](log_id)\` 标记，点击可查看原始记录。
+
+例如：
+* 患者反映血压偏高 (158/98 mmHg) [🔗 溯源](log_示例ID)
+* 化验单提示 LDL-C 升高 [🔗 溯源](log_示例ID)
+
+> [!NOTE]
+> 📋 **溯源规则**：AI 在更新 Wiki 时应为每条关键观察挂载对应的溯源引用，保证每条信息都可回溯至原始证据。
 `
   };
 };
+
 
 // ──────────────────── REST APIs ────────────────────
 
@@ -248,6 +303,12 @@ app.post('/api/clients/:id/logs', (req, res) => {
   const { id } = req.params;
   const { type, content, title } = req.body; // type: phone | video | wechat | ocr
   if (!type || !content) return res.status(400).json({ error: '类型和内容为必填项' });
+
+  // Strict enum validation for log type
+  const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr'];
+  if (!VALID_LOG_TYPES.includes(type)) {
+    return res.status(400).json({ error: `日志类型无效，必须是以下之一: ${VALID_LOG_TYPES.join(', ')}` });
+  }
 
   const clients = readClients();
   if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
