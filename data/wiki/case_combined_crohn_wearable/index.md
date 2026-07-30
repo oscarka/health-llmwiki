@@ -15,8 +15,32 @@
 
 ## 1. 客户基本画像
 * **基本信息**：男，26岁，消化内科 23床 [🔗 溯源](log_c2_3)。
-* **主要诊断**：克罗恩病 (CD) 维持期 [🔗 溯源](log_c2_1)。
-* **生理指标危机**：穿戴异常检测评分达 0.4890，静息心率最高达 80.2 bpm [🔗 溯源](log_c2_2)。
+* **主要诊断**：
+```observation-block
+  type: observation
+  subtype: finding
+  content: "主要诊断为克罗恩病（CD）2年余"
+  evidence_refs:
+    - log_c2_1
+  attention_score: 0.3
+```
+* **生理指标危机**：
+```observation-block
+  type: observation
+  subtype: signal
+  content: "HRV RMSSD 当前值 68.11 ms，偏离基线幅度波动达 -2.1% 至 +35.2%（偏离均值 +11.9%）"
+  evidence_refs:
+    - log_c2_2
+  attention_score: 0.3
+```
+```observation-block
+  type: observation
+  subtype: signal
+  content: "平均心率 74.8 bpm（静息状态下最高达 80.2 bpm）"
+  evidence_refs:
+    - log_c2_2
+  attention_score: 0.3
+```
 
 ## 2. 快捷导航
 * [既往史与诊疗时间轴](medical_history.md)

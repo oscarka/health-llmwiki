@@ -10,10 +10,30 @@ export default function HealthWikiRenderer({
   logSources = [],
   personMeta = null,
   onOpenReference,
-  onSelectionAction
+  onSelectionAction,
+  isIndexPage = false
 }) {
   const containerRef = useRef(null);
   
+  // ── 格式化思维导图叶子节点文本 ────────────────────
+  const parseLeafNode = (nodeText) => {
+    // 剔除 markdown 粗体标记
+    const cleanText = nodeText.replace(/\*\*/g, '').trim();
+    // 匹配英文冒号或中文冒号
+    const colonIdx = cleanText.search(/[:：]/);
+    if (colonIdx !== -1) {
+      const label = cleanText.substring(0, colonIdx).trim();
+      const value = cleanText.substring(colonIdx + 1).trim();
+      return (
+        <>
+          <span className="leaf-label">{label}:</span>
+          <span className="leaf-value"> {value}</span>
+        </>
+      );
+    }
+    return <span className="leaf-text">{cleanText}</span>;
+  };
+
   // ── 状态管理 ─────────────────────────────────
   const [mindmapOpen, setMindmapOpen] = useState(false);
   const [popoverState, setPopoverState] = useState({
@@ -225,7 +245,10 @@ export default function HealthWikiRenderer({
           }
         });
 
-        const content = data.content || '';
+        if (!data.content) {
+          throw new Error('Missing required field: content');
+        }
+        const content = data.content;
         const subtype = data.subtype || '';
         const score = data.attention_score ? parseFloat(data.attention_score) : null;
 
@@ -246,24 +269,38 @@ export default function HealthWikiRenderer({
             }
           }
           const scoreBadgeHtml = score !== null ? `<span class="score-badge ${glowClass}-badge">${badgeText} (${score})</span>` : '';
-          return `<div class="structured-block-card observation-card ${glowClass}-card">
-            <div class="card-header">
-              <span class="card-icon">🧠</span>
-              <strong class="card-title">观察 / ${subtype}</strong>
+          return `<div class="structured-block-card observation-card ${glowClass}-card" style="border-radius: 16px; margin: 16px 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(30, 41, 59, 0.45); transition: all 0.2s ease;">
+            <div class="card-header" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+              <span class="material-symbols-outlined icon-fill" style="font-size: 16px; color: var(--text-secondary);">visibility</span>
+              <strong class="card-title" style="font-size: 13px; font-weight: 600; color: var(--text-primary);">观察 / ${subtype}</strong>
               ${scoreBadgeHtml}
             </div>
-            <div class="card-body">
-              <span class="card-content-text">${content}</span> ${citations}
+            <div class="card-body" style="padding: 16px; font-size: 13.5px; color: var(--text-primary); line-height: 1.6;">
+              <span class="card-content-text" style="font-weight: 500; display: block; margin-bottom: 10px;">${content}</span>
+              <div class="card-footer-badges" style="display: flex; gap: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.05); padding-top: 8px; align-items: center; flex-wrap: wrap;">
+                <span class="card-origin-badge" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; padding: 2px 8px; font-size: 11px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px;">
+                  <span class="material-symbols-outlined" style="font-size: 12px; color: var(--text-secondary);">database</span>
+                  数据证据
+                </span>
+                ${citations}
+              </div>
             </div>
           </div>`;
         } else {
-          return `<div class="structured-block-card intervention-card">
-            <div class="card-header">
-              <span class="card-icon">🌿</span>
-              <strong class="card-title">干预 / ${subtype}</strong>
+          return `<div class="structured-block-card intervention-card" style="border-radius: 16px; margin: 16px 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(30, 41, 59, 0.45); transition: all 0.2s ease;">
+            <div class="card-header" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+              <span class="material-symbols-outlined icon-fill" style="font-size: 16px; color: var(--text-secondary);">healing</span>
+              <strong class="card-title" style="font-size: 13px; font-weight: 600; color: var(--text-primary);">干预 / ${subtype}</strong>
             </div>
-            <div class="card-body">
-              <span class="card-content-text">${content}</span> ${citations}
+            <div class="card-body" style="padding: 16px; font-size: 13.5px; color: var(--text-primary); line-height: 1.6;">
+              <span class="card-content-text" style="font-weight: 500; display: block; margin-bottom: 10px;">${content}</span>
+              <div class="card-footer-badges" style="display: flex; gap: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.05); padding-top: 8px; align-items: center; flex-wrap: wrap;">
+                <span class="card-origin-badge" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; padding: 2px 8px; font-size: 11px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px;">
+                  <span class="material-symbols-outlined" style="font-size: 12px; color: var(--text-secondary);">medical_services</span>
+                  干预治疗
+                </span>
+                ${citations}
+              </div>
             </div>
           </div>`;
         }
@@ -300,13 +337,13 @@ export default function HealthWikiRenderer({
     const processedHtml = marked.parse(compiledText);
 
     return {
-      aiSummary: extractedSummary || '大模型正在提取健康事件大纲...',
+      aiSummary: extractedSummary || (isIndexPage ? '大模型正在提取健康事件大纲...' : null),
       patientName: extractedName,
       cleanedMarkdown: compiledText,
       processedHtml,
       mindmapTree: tree
     };
-  }, [markdownContent, prevMarkdownContent, showDiff, personMeta]);
+  }, [markdownContent, prevMarkdownContent, showDiff, personMeta, isIndexPage]);
 
   // ── 拦截链接点击事件实现原文对照 ───────────────────
   const handleHtmlClick = (e) => {
@@ -369,41 +406,55 @@ export default function HealthWikiRenderer({
         </div>
       )}
 
-      {/* 2. 交互式脑图思维导图模块 */}
+      {/* 2. 交互式健康逻辑思维脑图模块 */}
       <div className="wiki-mindmap-section">
-        <div className="wiki-mindmap-header" onClick={() => setMindmapOpen(!mindmapOpen)}>
-          <span>🧠 交互式健康逻辑思维脑图</span>
-          <span>{mindmapOpen ? '收起 ▲' : '展开 ▼'}</span>
+        <div className="wiki-mindmap-header" onClick={() => setMindmapOpen(!mindmapOpen)} style={{ cursor: 'pointer' }}>
+          <div className="mindmap-header-left" style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>🧠 交互式健康逻辑思维脑图</span>
+          </div>
+          <div className="mindmap-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span 
+              style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}
+            >
+              {mindmapOpen ? '收起 ▲' : '展开 ▼'}
+            </span>
+          </div>
         </div>
         
         {mindmapOpen && (
           <div className="wiki-mindmap-container">
             <div className="mindmap-tree">
-              {/* 根节点 */}
-              <div className="mindmap-root-node">👤 {mindmapTree.root}</div>
+              {/* 根节点列 */}
+              <div className="mindmap-root-col">
+                <div className="mindmap-root-node">👤 {mindmapTree.root}</div>
+              </div>
               
-              {/* 各级分支 */}
-              <div className="mindmap-branches">
+              {/* 各级分支列 */}
+              <div className="mindmap-branches-col">
                 {mindmapTree.branches.map((branch, bIdx) => (
-                  <div className="mindmap-branch-column" key={bIdx}>
-                    {/* 分支标题 */}
-                    <div 
-                      className="mindmap-branch-node" 
-                      onClick={() => handleMindmapNodeClick(branch.title)}
-                    >
-                      📂 {branch.title}
-                    </div>
-                    {/* 分支叶节点 */}
-                    {branch.nodes.map((node, nIdx) => (
+                  <div className="mindmap-branch-row" key={bIdx}>
+                    {/* 分支标题包装器 */}
+                    <div className="mindmap-branch-node-wrapper">
                       <div 
                         className="mindmap-branch-node" 
-                        key={nIdx}
-                        style={{ backgroundColor: '#ffffff', color: '#475569', borderStyle: 'solid' }}
-                        onClick={() => handleMindmapNodeClick(node)}
+                        onClick={() => handleMindmapNodeClick(branch.title)}
                       >
-                        📄 {node}
+                        📂 {branch.title}
                       </div>
-                    ))}
+                    </div>
+                    {/* 叶节点包装列 */}
+                    <div className="mindmap-leaves-col">
+                      {branch.nodes.map((node, nIdx) => (
+                        <div 
+                          className="mindmap-leaf-node" 
+                          key={nIdx}
+                          onClick={() => handleMindmapNodeClick(node)}
+                        >
+                          <span className="leaf-icon">📄</span>
+                          {parseLeafNode(node)}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>

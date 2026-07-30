@@ -22,3 +22,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets - never commit
+.env
+.env.*
+
+# Large binary files
+*.dmg
+LLM_Wiki.app/
+crm_backup.zip
+LLM_Wiki_latest.dmg
+
+# Scratch
+scratch/

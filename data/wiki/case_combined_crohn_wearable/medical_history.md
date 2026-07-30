@@ -1,7 +1,14 @@
 # 既往史与诊疗时间轴
 
 ## 1. 生理指标基线
-* **HRV 基线**：HRV RMSSD 平均基线 68.31 ms，近7天异常偏离均值达 +11.9% [🔗 溯源](log_c2_2)。
+```observation-block
+  type: observation
+  subtype: signal
+  content: "HRV RMSSD 当前值 68.11 ms，偏离基线幅度波动达 -2.1% 至 +35.2%（偏离均值 +11.9%）"
+  evidence_refs:
+    - log_c2_2
+  attention_score: 0.3
+```
 * **克罗恩病史**：确诊 2年余，使用乌司奴单抗维持治疗，大便每日 2-3 次 [🔗 溯源](log_c2_1)。
 
 ## 2. 诊疗及穿戴检测时间轴

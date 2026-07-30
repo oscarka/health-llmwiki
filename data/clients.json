@@ -7,7 +7,7 @@
     "phone": "130-0000-0001",
     "allergies": "无已知药物过敏，暂行术前禁食水",
     "createdAt": "2026-05-28T03:12:24.485Z",
-    "lastSyncAt": "2026-05-28T03:12:24.485Z"
+    "lastSyncAt": null
   },
   {
     "id": "case_combined_crohn_wearable",
@@ -17,7 +17,7 @@
     "phone": "130-0000-0002",
     "allergies": "无已知药物过敏，既往IT痰史",
     "createdAt": "2026-05-28T03:12:24.485Z",
-    "lastSyncAt": "2026-05-28T03:12:24.485Z"
+    "lastSyncAt": null
   },
   {
     "id": "case_combined_stroke_multichannel",
@@ -27,7 +27,7 @@
     "phone": "130-0000-0003",
     "allergies": "无已知药物过敏，有断药史",
     "createdAt": "2026-05-28T03:12:24.485Z",
-    "lastSyncAt": "2026-05-28T03:12:24.485Z"
+    "lastSyncAt": null
   },
   {
     "id": "case_combined_pediatric",
@@ -37,6 +37,86 @@
     "phone": "130-0000-0004",
     "allergies": "无已知药物过敏",
     "createdAt": "2026-05-28T03:12:24.485Z",
-    "lastSyncAt": "2026-05-28T03:12:24.485Z"
+    "lastSyncAt": null
+  },
+  {
+    "id": "client_1785402485618_5ihm",
+    "name": "Test Patient 测试患者",
+    "age": 46,
+    "gender": "女",
+    "phone": "13900000001",
+    "allergies": "青霉素过敏",
+    "createdAt": "2026-07-30T09:08:05.618Z",
+    "lastSyncAt": null
+  },
+  {
+    "id": "client_1785402486755_035z",
+    "name": "Pipeline Test 管道流测试",
+    "age": 50,
+    "gender": "男",
+    "phone": "13911112222",
+    "allergies": "阿司匹林过敏",
+    "createdAt": "2026-07-30T09:08:06.755Z",
+    "lastSyncAt": null
+  },
+  {
+    "id": "client_1785402590549_fc8y",
+    "name": "Test Patient 测试患者",
+    "age": 46,
+    "gender": "女",
+    "phone": "13900000001",
+    "allergies": "青霉素过敏",
+    "createdAt": "2026-07-30T09:09:50.549Z",
+    "lastSyncAt": null
+  },
+  {
+    "id": "client_1785402592354_ig0c",
+    "name": "Pipeline Test 管道流测试",
+    "age": 50,
+    "gender": "男",
+    "phone": "13911112222",
+    "allergies": "阿司匹林过敏",
+    "createdAt": "2026-07-30T09:09:52.354Z",
+    "lastSyncAt": null
+  },
+  {
+    "id": "client_1785403855455_9e91",
+    "name": "Test Patient 测试患者",
+    "age": 46,
+    "gender": "女",
+    "phone": "13900000001",
+    "allergies": "青霉素过敏",
+    "createdAt": "2026-07-30T09:30:55.455Z",
+    "lastSyncAt": null
+  },
+  {
+    "id": "client_1785404193408_zpde",
+    "name": "Test Patient 测试患者",
+    "age": 46,
+    "gender": "女",
+    "phone": "13900000001",
+    "allergies": "青霉素过敏",
+    "createdAt": "2026-07-30T09:36:33.408Z",
+    "lastSyncAt": null
+  },
+  {
+    "id": "client_1785404208250_sjvi",
+    "name": "Pipeline Test 管道流测试",
+    "age": 50,
+    "gender": "男",
+    "phone": "13911112222",
+    "allergies": "阿司匹林过敏",
+    "createdAt": "2026-07-30T09:36:48.250Z",
+    "lastSyncAt": "2026-07-30T09:43:27.860Z"
+  },
+  {
+    "id": "client_1785404704878_nj13",
+    "name": "Test Patient 测试患者",
+    "age": 46,
+    "gender": "女",
+    "phone": "13900000001",
+    "allergies": "青霉素过敏",
+    "createdAt": "2026-07-30T09:45:04.878Z",
+    "lastSyncAt": null
   }
 ]

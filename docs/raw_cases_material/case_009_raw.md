@@ -29,3 +29,31 @@
 >   * **促甲状腺激素(TSH)**：<0.005 uIU/mL  (参考范围: 0.27-4.20) —— 处于重度受抑状态。
 > - **诊断**： Graves 病 (甲状腺功能亢进症)。
 > - **用药建议**：开始口服抗甲状腺药“甲巯咪唑片” 10mg，一日两次；配合口服“盐酸普萘洛尔片”（β受体阻滞剂）10mg，一日三次以拮抗窦性心动过速 [🔗 溯源](log_c8_2)。
+
+
+
+员工批量：
+陆丹萍	管理员	15110078719	danpinglu@healthlink.cn
+张敏	健管师	18210173141	minzhang@healthlink.cn
+汤晶	健管师	15116219193	jingtang@healthlink.cn
+贾蕾	健管师	15910612987	leijia@healthlink.cn
+曹山月	医生	15701656030	shanyuecao@healthlink.cn
+杨红飞	医生	15102664634	1312485495@qq.com
+孔繁钢	医生	15034122146	fangangkong@healthlink.cn
+白璐	营养师	18310889058	lubai@healthlink.cn
+史金红	营养师	13910190480	jinhongshi@healthlink.cn
+国志华	营养师	13811812568	zhihuaguo@healthlink.cn
+尹鹏珞	护士	13681545487	pengluoyin@healthlink.cn
+袁飞	护士	18811773638	feiyuan@healthlink.cn
+闫素苹	护士	13520769962	supingyan@healthlink.cn
+
+
+
+用户批量：
+L11，13900000011，L人群批量服务产品
+L12，13900000012，L人群批量服务产品
+L13，13900000013，L人群批量服务产品
+L14，13900000014，L人群批量服务产品
+L15，13900000015，L人群批量服务产品
+L16，13900000016，L人群批量服务产品
+L17，13900000017，L人群批量服务产品

@@ -1,24 +1,94 @@
 # 客户健康首页：老年慢阻肺合并脊柱骨折与糖尿病照护
 <!-- SUMMARY_START -->
-患者为73岁老年男性，患慢阻肺十余年伴哮喘，因跌倒致L2腰椎压缩骨折入院，合并糖尿病。目前卧床吸氧，执行一级护理。本案例面临严重的内外科矛盾：慢阻肺咳嗽腹压动荡会加剧腰椎骨折移位，而骨折绝对卧床又会加重呼吸困难及压疮，需极其细致的协同管理。
+患者张增良为73岁老年男性，患慢性阻塞性肺疾病（慢阻肺）十多快二十年伴哮喘，于4月30日因慢阻肺咳嗽剧烈导致重心不稳，在卧室床边摔伤腰部致L2腰椎压缩骨折入院，合并4年糖尿病史。目前卧床吸氧，执行一级护理。本案例面临严重的内外科矛盾：慢阻肺咳嗽腹压动荡会加剧腰椎骨折移位，而骨折绝对卧床又会加重呼吸困难及压疮，需极其细致的协同管理。
 <!-- SUMMARY_END -->
 
-> [!IMPORTANT]
-> **红线警示（脊柱不稳定与窒息性呼衰冲突）**：
-> - 绝对卧床：严禁患者自行翻身，每次翻身必须由 3 名医护人员协同实施整体“轴线翻身”，防范骨折块移位压迫脊髓 [🔗 溯源](log_c1_2)！
-> - 严重缺氧：血氧饱和度仅为 89% [🔗 溯源](log_c1_3)。患者一旦咳嗽可能导致剧烈腰痛与骨折段负荷，但慢阻肺又必须排痰。如发现指甲嘴唇青紫（紫绀）、点头样呼吸或神志模糊，须立即加大给氧并呼叫急救。
+```observation-block
+type: observation
+subtype: finding
+content: "患者张增良患有慢性阻塞性肺疾病（慢阻肺），病史十多快二十年"
+evidence_refs:
+  - log_c1_1
+attention_score: 0
+```
 
-> [!WARNING]
-> **围手术期控糖与吸入剂限制**：
-> - 慢阻肺急性加重使常用吸入药效下降，严禁家属自行加量吸入，以防诱发心律失常 [🔗 溯源](log_c1_1)。
-> - 既往糖尿病史数年，在术前禁食水状态下极易引发低血糖，需密切进行床旁血糖追踪 [🔗 溯源](log_c1_2)。
+```observation-block
+type: observation
+subtype: finding
+content: "患者张增良患有哮喘"
+evidence_refs:
+  - log_c1_1
+attention_score: 0
+```
 
-## 1. 客户基本画像
-* **基本信息**：男，73岁，脊柱一组 18床 [🔗 溯源](log_c1_3)。
-* **主要诊断**：慢阻肺急性加重 [🔗 溯源](log_c1_1) ｜ L2腰椎压缩性骨折 [🔗 溯源](log_c1_2)。
-* **合并疾病**：糖尿病史 [🔗 溯源](log_c1_2)。
+```observation-block
+type: observation
+subtype: signal
+content: "患者张增良活动后气短加重，走路走没两步就喘得厉害，大口喘气"
+evidence_refs:
+  - log_c1_1
+attention_score: 0
+```
 
-## 2. 快捷导航
-* [既往史与诊疗时间轴](medical_history.md)
-* [用药方案与生活医嘱](medication_plan.md)
-* [随访互动摘要](communication_timeline.md)
+```observation-block
+type: observation
+subtype: signal
+content: "患者张增良精神差，不爱动"
+evidence_refs:
+  - log_c1_1
+attention_score: 0
+```
+
+```observation-block
+type: observation
+subtype: treatment
+content: "患者张增良平时使用吸入的喷雾进行治疗"
+evidence_refs:
+  - log_c1_1
+attention_score: 0
+```
+
+```observation-block
+type: observation
+subtype: finding
+content: "患者张增良出现慢阻肺急性加重（AECOPD）"
+evidence_refs:
+  - log_c1_1
+attention_score: 0
+```
+
+```observation-block
+type: observation
+subtype: pipeline
+content: "建议对患者张增良做血气分析、肺部CT和肺功能评估"
+evidence_refs:
+  - log_c1_1
+attention_score: 0
+```
+
+```observation-block
+type: observation
+subtype: treatment
+content: "建议由医生调整患者张增良的平喘和抗炎药物"
+evidence_refs:
+  - log_c1_1
+attention_score: 0
+```
+
+```observation-block
+type: observation
+subtype: care
+content: "建议患者张增良在家里注意保暖，避免感冒"
+evidence_refs:
+  - log_c1_1
+attention_score: 0
+```
+
+```observation-block
+type: observation
+subtype: signal
+content: "患者张增良体温36.6℃，心率/脉搏88次/分，呼吸22次/分（气促明显），血氧饱和度（SpO2）89%（低流量鼻导管吸氧2L/min状态下），随机指尖血糖9.2 mmol/L"
+evidence_refs:
+  - log_c1_3
+attention_score: 0.95
+```

@@ -1,0 +1,16 @@
+node_modules
+.git
+.env
+.env.*
+*.log
+.DS_Store
+dist
+scratch/
+LLM_Wiki.app
+*.dmg
+crm_backup.zip
+llm-wiki-demo/
+llm_wiki_official/
+projects/
+tests/
+docs/

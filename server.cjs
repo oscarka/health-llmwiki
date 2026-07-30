@@ -92,6 +92,79 @@ const deleteClientData = (clientId) => {
   }
 };
 
+// 健壮的 JSON 解析与自动修复函数，防止 LLM 输出截断或转义错误导致 JSON.parse 崩溃
+const robustParseJson = (str) => {
+  let cleaned = str.trim();
+  if (cleaned.startsWith('```')) {
+    const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match) cleaned = match[1].trim();
+  }
+  
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.warn('[robustParseJson] 初始 JSON 解析失败，尝试进行括号及字符串闭合自动修复...', e.message);
+  }
+
+  let inString = false;
+  let escape = false;
+  let stack = [];
+  let repaired = '';
+  
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i];
+    repaired += char;
+    
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+    
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    
+    if (!inString) {
+      if (char === '{' || char === '[') {
+        stack.push(char);
+      } else if (char === '}') {
+        if (stack[stack.length - 1] === '{') stack.pop();
+      } else if (char === ']') {
+        if (stack[stack.length - 1] === '[') stack.pop();
+      }
+    }
+  }
+  
+  if (inString) {
+    repaired += '"';
+  }
+  
+  while (stack.length > 0) {
+    const open = stack.pop();
+    if (open === '{') repaired += '}';
+    if (open === '[') repaired += ']';
+  }
+  
+  try {
+    return JSON.parse(repaired);
+  } catch (e2) {
+    try {
+      const sanitized = repaired.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (match, p1) => {
+        return '"' + p1.replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
+      });
+      return JSON.parse(sanitized);
+    } catch (e3) {
+      throw new Error(`JSON 解析及自动修复失败: ${e.message}. 自动修复后错误: ${e3.message}. 原始字符串长度: ${str.length}`);
+    }
+  }
+};
+
 // ──────────────────── 默认 Wiki 模板（PRD 8分区认知骨架）────────────────────
 const createDefaultWiki = (client) => {
   const ageStr = client.age ? `${client.age}岁` : '未知年龄';
@@ -188,9 +261,51 @@ const createDefaultWiki = (client) => {
 
 > [!NOTE]
 > 📋 **溯源规则**：AI 在更新 Wiki 时应为每条关键观察挂载对应的溯源引用，保证每条信息都可回溯至原始证据。
+`,
+    'user_profile.md': `# 用户画像与沟通注意点
+
+## 基本背景
+<!-- 年龄段、性别、职业背景等有助于沟通的非医疗信息 -->
+暂无记录。
+
+## 沟通偏好
+<!-- 用户惯用语言（普通话/方言/专业术语程度）、偏好简洁还是详细解释 -->
+暂无记录。
+
+## 必须注意事项
+<!-- 对AI不能说的内容、禁忌话题、特殊敏感点 -->
+暂无记录。
+
+## 个人与社会属性
+<!-- 家庭状况、主要照护者、经济情况、城市、医保类型等影响建议的背景 -->
+暂无记录。
 `
   };
 };
+
+
+// ──────────────────── 辅助：context-inject 注入逻辑 ────────────────────
+
+// 估算中文文本的大约 token 数（1 中文字符 ≈ 0.6 token，英文字母/数字 ≈ 0.25 token）
+const estimateTokens = (text) => {
+  if (!text) return 0;
+  const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const otherChars = text.length - chineseChars;
+  return Math.ceil(chineseChars * 0.6 + otherChars * 0.25);
+};
+
+// 构建 Block 3 健康档案摘要：默认只用 index.md，附上按需取的工具提示
+const buildHealthContext = (wikiPages) => {
+  const indexContent = wikiPages['index.md'] || '';
+  const toolHint = `
+---
+📋 **可按需调用以下工具获取更多档案**（如用户询问具体用药、化验详情时调用）：
+- 历史病史/化验/生理信号 → 工具 \`get_medical_history\`
+- 当前用药方案/护理要程/监测目标 → 工具 \`get_medication_plan\`
+（最近30轮对话记录已在对话历史中，无需重复读取）`;
+  return indexContent + toolHint;
+};
+
 
 
 // ──────────────────── REST APIs ────────────────────
@@ -275,6 +390,29 @@ app.get('/api/clients/:id/wiki', (req, res) => {
   res.json(wikiPages);
 });
 
+// 5b. Agent 专用：获取格式化好的 System Prompt 注入内容
+// 返回 user_profile（全量）+ health_wiki（index.md + 工具提示）+ token 估算
+app.get('/api/clients/:id/context-inject', (req, res) => {
+  const { id } = req.params;
+  const clients = readClients();
+  if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
+
+  const wikiPages = readWikiPages(id);
+  const userProfile = wikiPages['user_profile.md'] || '';
+  const healthWiki = buildHealthContext(wikiPages);
+
+  res.json({
+    user_profile: userProfile,
+    health_wiki: healthWiki,
+    token_estimate: {
+      user_profile: estimateTokens(userProfile),
+      health_wiki: estimateTokens(healthWiki),
+      total: estimateTokens(userProfile) + estimateTokens(healthWiki)
+    }
+  });
+});
+
+
 // 6. 保存/修改单个 Wiki 页面（手动编辑）
 app.put('/api/clients/:id/wiki/:pageName', (req, res) => {
   const { id, pageName } = req.params;
@@ -328,6 +466,50 @@ app.post('/api/clients/:id/logs', (req, res) => {
   logs.push(newLog);
   writeLogs(id, logs);
   res.status(201).json(newLog);
+});
+
+// 8b. 批量录入多条沟通日志（Agent 在触发 sync 时使用，减少 HTTP 请求次数）
+app.post('/api/clients/:id/logs/batch', (req, res) => {
+  const { id } = req.params;
+  const { logs: inputLogs } = req.body;
+
+  if (!Array.isArray(inputLogs) || inputLogs.length === 0) {
+    return res.status(400).json({ error: 'logs 字段必须是非空数组' });
+  }
+
+  const clients = readClients();
+  if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
+
+  const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr'];
+  const existingLogs = readLogs(id);
+  const insertedIds = [];
+  const errors = [];
+
+  for (let i = 0; i < inputLogs.length; i++) {
+    const { type, content, title } = inputLogs[i];
+    if (!type || !content) { errors.push(`第${i+1}条缺少 type 或 content`); continue; }
+    if (!VALID_LOG_TYPES.includes(type)) { errors.push(`第${i+1}条 type 无效: ${type}`); continue; }
+
+    const randomSuffix = Math.random().toString(36).substring(2, 6);
+    const newLog = {
+      id: `log_${Date.now()}_${randomSuffix}`,
+      type,
+      title: title || `批量录入-${type} (${new Date().toLocaleDateString()})`,
+      content,
+      timestamp: new Date().toISOString(),
+      synced: false
+    };
+    existingLogs.push(newLog);
+    insertedIds.push(newLog.id);
+  }
+
+  writeLogs(id, existingLogs);
+  res.status(201).json({
+    success: true,
+    inserted: insertedIds.length,
+    ids: insertedIds,
+    errors: errors.length > 0 ? errors : undefined
+  });
 });
 
 // ──────────────────── 豆包大模型增量汇总逻辑 ────────────────────
@@ -409,22 +591,17 @@ ${log.content}
         { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
         { role: 'user', content: stage1Prompt }
       ],
-      temperature: 0.1
+      temperature: 0.1,
+      response_format: { type: "json_object" }
     });
 
     const stage1Content = stage1Response.choices[0]?.message?.content || '{}';
-    let cleanedStage1 = stage1Content.trim();
-    if (cleanedStage1.startsWith('```')) {
-      const match = cleanedStage1.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (match) cleanedStage1 = match[1].trim();
-    }
-
     let parsedFactsObj;
     try {
-      parsedFactsObj = JSON.parse(cleanedStage1);
+      parsedFactsObj = robustParseJson(stage1Content);
     } catch (e) {
-      console.error('Failed to parse Stage 1 JSON:', cleanedStage1);
-      throw new Error('临床事实解析失败：' + e.message);
+      console.error('Failed to parse Stage 1 JSON:', stage1Content);
+      throw new Error('临床事实提取失败：' + e.message);
     }
 
     const facts = parsedFactsObj.facts || [];
@@ -440,7 +617,7 @@ ${log.content}
         const text = fact.content.toLowerCase();
 
         // 1. 血氧饱和度 (SpO2) 异常
-        const spo2Match = text.match(/spo2\s*(?:[<≤：:]\s*|仅|是|为)?\s*(\d+)%/i);
+        const spo2Match = text.match(/(?:spo2|血氧饱和度|血氧)\s*(?:[<≤：:]\s*|仅|是|为)?\s*(\d+)%/i);
         if (spo2Match) {
           const val = parseInt(spo2Match[1]);
           if (val < 90) score = Math.max(score, 0.95);
@@ -505,6 +682,11 @@ ${log.content}
 
     const stage3Prompt = `你是一个非常专业且细心的医疗健康档案助理。请根据下面给出的【新增结构化事实】，增量更新客户的专属 Markdown Wiki 档案。
 
+⚠️ 格式强制要求（最优先遵守，不得违反）：
+- 所有新增的 observation 事实（生理信号、化验结果、功能变化）必须用 \`\`\`observation-block 代码块写入，绝对禁止写成 Markdown 表格行或普通文字。
+- 所有新增的 intervention 事实（用药、治疗、管道、护理）必须用 \`\`\`intervention-block 代码块写入，绝对禁止写成普通文字或表格。
+- 文件模板中已有的空白表格（如 | — | — |）保留不动，新数据用 Block 写在表格下方。
+
 ### 客户基本信息
 姓名: ${client.name}
 年龄: ${client.age || '未知'}
@@ -543,14 +725,12 @@ ${formattedFactsForLLM}
        - 溯源ID
      \`\`\`
 4. **AI 安全红线**：严禁包含以下诊断性或恐慌性词语：\`AI确诊\`、\`AI诊断为\`、\`人工智能诊断\`、\`confirmed by AI\`、\`AI confirms\`、\`危及生命\`、\`life-threatening\`、\`AI判断\`。仅客观记录观察，禁止越权诊断！
-5. **输出格式**：请直接输出一个合法的 JSON 对象，Key 是文件名（如 "index.md", "medical_history.md", "medication_plan.md", "communication_timeline.md"），Value 是更新后的完整 Markdown 内容。不要有任何前缀、后缀，也不要用 \`\`\`json 标记。
+5. **输出格式**：请直接输出一个合法的 JSON 对象，只需要包含【被更新或修改的文件】作为 Key（例如只包含 "medical_history.md" 和 "index.md"，未被修改的文件不需要包含在 JSON 中，以节省 Token 并防止截断），Value 是该文件更新后的完整 Markdown 内容。请确保输出是一个严格合法的 JSON 对象，不要包含任何 Markdown 格式包裹（如 \`\`\`json ），不要有任何解释性前缀或后缀。
 
 示例输出格式:
 {
-  "index.md": "# 客户健康首页...",
   "medical_history.md": "# 既往史与诊疗时间轴...",
-  "medication_plan.md": "# 用药方案...",
-  "communication_timeline.md": "# 随访互动..."
+  "medication_plan.md": "# 用药方案..."
 }`;
 
     const stage3Response = await openai.chat.completions.create({
@@ -559,23 +739,24 @@ ${formattedFactsForLLM}
         { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
         { role: 'user', content: stage3Prompt }
       ],
-      temperature: 0.1
+      temperature: 0.1,
+      response_format: { type: "json_object" }
     });
 
     const stage3Content = stage3Response.choices[0]?.message?.content || '{}';
-    let cleanedStage3 = stage3Content.trim();
-    if (cleanedStage3.startsWith('```')) {
-      const match = cleanedStage3.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (match) cleanedStage3 = match[1].trim();
+    let updatedWiki;
+    try {
+      updatedWiki = robustParseJson(stage3Content);
+    } catch (e) {
+      console.error('Failed to parse Stage 3 JSON:', stage3Content);
+      throw new Error('大模型返回的 Wiki JSON 解析失败: ' + e.message);
     }
-
-    const updatedWiki = JSON.parse(cleanedStage3);
 
     // 验证返回的 Wiki 页面是否有效
     const fileKeys = ['index.md', 'medical_history.md', 'medication_plan.md', 'communication_timeline.md'];
-    const validUpdate = fileKeys.some(key => updatedWiki[key]);
+    const validUpdate = fileKeys.some(key => updatedWiki[key] !== undefined);
     if (!validUpdate) {
-      throw new Error('大模型未能返回有效的 Wiki 页面 JSON 数据');
+      throw new Error('大模型未能返回任何有效的 Wiki 页面 JSON 数据');
     }
 
     // 写入更新后的 Wiki 页面（若报错则不进行物理写入，保障事务隔离）

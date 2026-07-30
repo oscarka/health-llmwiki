@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki 界面重构方案 A - 右侧常驻双栏</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+  <style>
+    /* ──────────────────── 全局设计系统 ──────────────────── */
+    :root {
+      --bg-gradient: linear-gradient(135deg, #f0f2fd 0%, #f9f9ff 100%);
+      --sidebar-bg: #ffffff;
+      --card-bg: #ffffff;
+      --border-color: #dfe2ed;
+      
+      --primary: #003da6;
+      --primary-hover: #002e7e;
+      --primary-glow: rgba(0, 61, 166, 0.12);
+      
+      --success: #006c47;
+      --success-bg: rgba(0, 108, 71, 0.08);
+      --success-border: rgba(0, 108, 71, 0.2);
+      
+      --warning: #9a4500;
+      --warning-bg: rgba(154, 69, 0, 0.08);
+      --warning-border: rgba(154, 69, 0, 0.2);
+      
+      --danger: #ef4444;
+      --danger-bg: #ffdad6;
+      --danger-border: rgba(239, 68, 68, 0.2);
+      
+      --text-primary: #181c23;
+      --text-secondary: #434654;
+      --text-muted: #737686;
+      
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-display: 'Outfit', var(--font-sans);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: #f9f9ff;
+      background-image: var(--bg-gradient);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ─── 顶部演示导航条 ─── */
+    .demo-bar {
+      background: #1e1b4b;
+      color: #e0e7ff;
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 100;
+      border-bottom: 2px solid #312e81;
+    }
+
+    .demo-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .demo-title span {
+      background: #4f46e5;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    .demo-nav {
+      display: flex;
+      gap: 12px;
+    }
+
+    .demo-link {
+      color: #9fa8da;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 16px;
+      border-radius: 20px;
+      transition: all 0.2s;
+      background: rgba(255,255,255,0.05);
+    }
+
+    .demo-link:hover {
+      color: #ffffff;
+      background: rgba(255,255,255,0.1);
+    }
+
+    .demo-link.active {
+      color: #ffffff;
+      background: #4f46e5;
+      box-shadow: 0 0 8px rgba(79, 70, 229, 0.4);
+    }
+
+    /* ─── 主布局容器 ─── */
+    .app-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      height: calc(100vh - 44px);
+    }
+
+    /* ─── 左侧客户端列表 ─── */
+    .sidebar {
+      width: 280px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .sidebar-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .logo-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .logo-icon {
+      font-size: 28px;
+      color: var(--primary);
+    }
+
+    .logo-text h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .search-box input {
+      width: 100%;
+      border: 1px solid var(--border-color);
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      background: #f5f6fa;
+      outline: none;
+    }
+
+    .client-list {
+      flex: 1;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+    }
+
+    .client-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .client-item:hover {
+      border-color: var(--primary-hover);
+      background: var(--card-hover-bg);
+    }
+
+    .client-item.active {
+      background: #eef2ff;
+      border-color: var(--primary);
+    }
+
+    .client-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #dbeafe;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      margin-right: 10px;
+    }
+
+    .client-info {
+      flex: 1;
+    }
+
+    .client-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .client-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--danger);
+    }
+
+    /* ─── 右侧工作区 ─── */
+    .workspace {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* 客户页眉看板 */
+    .client-dashboard-header {
+      background: #ffffff;
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .client-main-profile h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .profile-tags {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .tag {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: #f1f3f9;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .tag-gender { background: #e0f2fe; color: #0369a1; }
+    .tag-age { background: #fef3c7; color: #b45309; }
+    .tag-phone { background: #f3e8ff; color: #6b21a8; }
+    
+    .profile-allergies {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--danger);
+      background: var(--danger-bg);
+      padding: 2px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      font-weight: 600;
+    }
+
+    .sync-control-panel {
+      text-align: right;
+    }
+
+    .sync-status-info {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .btn-sync {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* 选项卡栏 */
+    .action-bar {
+      background: #ffffff;
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 32px;
+      display: flex;
+      justify-content: space-between;
+      height: 48px;
+    }
+
+    .view-tabs {
+      display: flex;
+      gap: 24px;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      padding: 0 4px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    /* Wiki 主布局 (双栏/三栏区域) */
+    .wiki-workspace {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      background: #f9f9ff;
+    }
+
+    /* Wiki 章节目录 (左) */
+    .wiki-nav {
+      width: 200px;
+      border-right: 1px solid var(--border-color);
+      background: #ffffff;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .nav-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      padding-left: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .wiki-nav-item {
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .wiki-nav-item:hover {
+      background: #f1f3f9;
+      color: var(--text-primary);
+    }
+
+    .wiki-nav-item.active {
+      background: #e0e7ff;
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    /* Wiki 主体内容包装器 */
+    .wiki-body-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .wiki-body-header {
+      padding: 16px 32px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .wiki-page-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .wiki-body-content-wrapper {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Wiki 正文滚动容器 */
+    .wiki-body-content {
+      flex: 1;
+      padding: 32px;
+      overflow-y: auto;
+      background: #ffffff;
+    }
+
+    .wiki-document-container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    /* ─── Mock 章节导航（集成到Wiki页面顶部） ─── */
+    .integrated-toc-bar {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 24px;
+    }
+    
+    .integrated-toc-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    
+    .integrated-toc-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      list-style: none;
+    }
+
+    .integrated-toc-item {
+      font-size: 12px;
+      color: var(--primary);
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-weight: 500;
+    }
+
+    .integrated-toc-item:hover {
+      background: #eff6ff;
+      border-color: #3b82f6;
+    }
+
+    /* ─── Markdown 样式 ─── */
+    .wiki-article h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-top: 24px;
+      margin-bottom: 12px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .wiki-article p {
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: #334155;
+      margin-bottom: 14px;
+    }
+
+    .wiki-article ul {
+      margin-bottom: 16px;
+      padding-left: 20px;
+    }
+
+    .wiki-article li {
+      font-size: 13px;
+      line-height: 1.6;
+      color: #334155;
+      margin-bottom: 8px;
+    }
+
+    .cite-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-left: 4px;
+      cursor: pointer;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .cite-badge:hover {
+      background: #dbeafe;
+    }
+
+    .alert-box {
+      background: #fdf2f2;
+      border-left: 4px solid #ef4444;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      margin: 16px 0;
+    }
+
+    .alert-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #991b1b;
+      margin-bottom: 4px;
+    }
+
+    .alert-content {
+      font-size: 12.5px;
+      color: #7f1d1d;
+      line-height: 1.5;
+    }
+
+    /* ─── 右侧常驻人体评估图面板（方案 A 核心） ─── */
+    .wiki-sidebar-map {
+      width: 340px;
+      border-left: 1px solid var(--border-color);
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow-y: auto;
+    }
+
+    .map-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #f1f5f9;
+      background: #fafafc;
+    }
+
+    .map-header h3 {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .map-header p {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* 人体图形展示区 */
+    .map-body-wrapper {
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+      background: linear-gradient(180deg, #fafafa 0%, #f1f5f9 100%);
+      border-bottom: 1px solid #f1f5f9;
+      position: relative;
+    }
+
+    .svg-container {
+      width: 170px;
+      height: 380px;
+      position: relative;
+      background: rgba(255,255,255,0.6);
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      overflow: hidden;
+      box-shadow: inset 0 2px 8px rgba(0,0,0,0.05);
+    }
+
+    .svg-container svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* 简易人体轮廓（当 orgnas.svg 载入失败或本地 file:// 无法 fetch 时的精美 fallback） */
+    .body-silhouette {
+      width: 100%;
+      height: 100%;
+      fill: #e2e8f0;
+      stroke: #cbd5e1;
+      stroke-width: 1.5;
+    }
+
+    /* 脏器热点覆盖 */
+    .hotspot {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    .hotspot-center {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      transition: all 0.2s;
+    }
+
+    .hotspot-ring {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      animation: pulse-ring 2s infinite ease-in-out;
+      pointer-events: none;
+      transition: all 0.2s;
+    }
+
+    .hotspot-label {
+      position: absolute;
+      top: -20px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      white-space: nowrap;
+      pointer-events: none;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.1));
+    }
+
+    /* 严重度颜色 */
+    .sev-high .hotspot-center { background-color: #ef4444; box-shadow: 0 0 10px #ef4444; }
+    .sev-high .hotspot-ring { border: 2px solid #ef4444; animation-duration: 1.2s; }
+    
+    .sev-medium .hotspot-center { background-color: #f59e0b; box-shadow: 0 0 10px #f59e0b; }
+    .sev-medium .hotspot-ring { border: 2px solid #f59e0b; animation-duration: 1.8s; }
+
+    .sev-low .hotspot-center { background-color: #3b82f6; box-shadow: 0 0 10px #3b82f6; }
+    .sev-low .hotspot-ring { border: 2px solid #3b82f6; animation-duration: 2.5s; }
+
+    @keyframes pulse-ring {
+      0% { opacity: 0.3; transform: translate(-50%, -50%) scale(0.7); }
+      50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.3); }
+      100% { opacity: 0.3; transform: translate(-50%, -50%) scale(0.7); }
+    }
+
+    .hotspot:hover .hotspot-center {
+      transform: translate(-50%, -50%) scale(1.4);
+    }
+    .hotspot:hover .hotspot-ring {
+      transform: translate(-50%, -50%) scale(1.4);
+      opacity: 1;
+    }
+
+    /* 脏器评估卡片列表（垂直排列） */
+    .map-cards-list {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .organ-card {
+      background: #ffffff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      border-left: 4px solid transparent;
+    }
+
+    .organ-card:hover, .organ-card.highlighted {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+      border-color: #cbd5e1;
+      background: #fafafc;
+    }
+
+    .organ-card.sev-high { border-left-color: #ef4444; }
+    .organ-card.sev-medium { border-left-color: #f59e0b; }
+    .organ-card.sev-low { border-left-color: #3b82f6; }
+
+    .organ-card.sev-high:hover, .organ-card.sev-high.highlighted { box-shadow: 0 4px 14px rgba(239, 68, 68, 0.15); }
+    .organ-card.sev-medium:hover, .organ-card.sev-medium.highlighted { box-shadow: 0 4px 14px rgba(245, 158, 11, 0.15); }
+
+    .organ-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .organ-card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sev-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 10px;
+    }
+
+    .sev-high-badge { background: #fef2f2; color: #dc2626; border: 1px solid rgba(239,68,68,0.2); }
+    .sev-medium-badge { background: #fffbeb; color: #d97706; border: 1px solid rgba(245,158,11,0.2); }
+    .sev-low-badge { background: #eff6ff; color: #2563eb; border: 1px solid rgba(59,130,246,0.2); }
+
+    .obs-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      list-style: none;
+    }
+
+    .obs-item {
+      font-size: 11.5px;
+      color: #475569;
+      line-height: 1.4;
+      display: flex;
+      align-items: flex-start;
+      gap: 4px;
+    }
+
+    .obs-bullet {
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .obs-text {
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部演示切换条 -->
+  <div class="demo-bar">
+    <div class="demo-title">
+      <span>演示 Mockup</span> LLMWiki 页面布局重构方案选型
+    </div>
+    <div class="demo-nav">
+      <a href="demo_layout_a.html" class="demo-link active">方案 A: 右侧常规侧栏</a>
+      <a href="demo_layout_b.html" class="demo-link">方案 B: 顶部横向看板</a>
+      <a href="demo_layout_c.html" class="demo-link">方案 C: 右侧标签切页</a>
+      <a href="demo_layout_d.html" class="demo-link">方案 D: 侧边双翼看板 (推荐)</a>
+    </div>
+  </div>
+
+  <div class="app-container">
+    <!-- 核心工作区 (左侧选人栏默认隐藏) -->
+    <div class="workspace">
+      <!-- 客户页眉 -->
+      <header class="client-dashboard-header">
+        <div class="client-main-profile">
+          <h2>张建国</h2>
+          <div class="profile-tags">
+            <span class="tag tag-gender">男</span>
+            <span class="tag tag-age">68 岁</span>
+            <span class="tag tag-phone">📞 138****8888</span>
+          </div>
+          <div class="profile-allergies">
+            ⚠️ 过敏史: 青霉素 (强过敏反应)
+          </div>
+        </div>
+        <div class="sync-control-panel">
+          <div class="sync-status-info">
+            上次大模型汇总: 2026-06-02 12:30:15
+          </div>
+          <button class="btn-sync">
+            <span>🔄</span> 同步 Wiki (豆包)
+          </button>
+        </div>
+      </header>
+
+      <!-- 操作与切换条 -->
+      <div class="action-bar">
+        <div class="view-tabs">
+          <button class="tab-btn active">📖 客户专属 Wiki 百科</button>
+          <button class="tab-btn">💬 原始沟通日志 (3)</button>
+        </div>
+      </div>
+
+      <!-- Wiki 页面大容器 -->
+      <div class="wiki-workspace">
+        
+        <!-- Wiki 页面目录 (左侧) -->
+        <aside class="wiki-nav">
+          <div class="nav-title">Wiki 页面目录</div>
+          <button class="wiki-nav-item active">🏠 客户健康首页</button>
+          <button class="wiki-nav-item">🧬 既往史与诊疗轴</button>
+          <button class="wiki-nav-item">💊 用药与生活医嘱</button>
+          <button class="wiki-nav-item">📅 随访与沟通摘要</button>
+        </aside>
+
+        <!-- Wiki 核心渲染主体 + 右侧常驻人体评估图 (双栏布局) -->
+        <div class="wiki-body-panel">
+          
+          <div class="wiki-body-header">
+            <div class="wiki-page-title">🏠 客户健康首页 (index.md)</div>
+            <button style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color); background:#fff; font-size:12px; font-weight:600; cursor:pointer;">手动编辑此页</button>
+          </div>
+
+          <div class="wiki-body-content-wrapper">
+            
+            <!-- (A) 中间: Wiki 纯正文 -->
+            <div class="wiki-body-content">
+              <div class="wiki-document-container">
+                
+                <!-- 章节导航集成在文章顶部 (水平标签样式，不占右侧大空间) -->
+                <div class="integrated-toc-bar">
+                  <div class="integrated-toc-title">
+                    <span class="material-symbols-outlined" style="font-size:12px;">toc</span>
+                    本文章节导航
+                  </div>
+                  <ul class="integrated-toc-list">
+                    <li class="integrated-toc-item">1. 当前主要关注</li>
+                    <li class="integrated-toc-item">2. 事件时间轴</li>
+                  </ul>
+                </div>
+
+                <article class="wiki-article">
+                  <h3>1. 当前主要关注 (Current Key Concerns)</h3>
+                  <p>患者目前处于颈椎骨折术后恢复期，合并发生<strong>急性肺部感染</strong>与<strong>胰腺血糖代谢紊乱</strong>，为当前护理及医学干预的重点防线。</p>
+                  
+                  <ul>
+                    <li>
+                      <strong>肺部与呼吸系统受累</strong>：患者昨晚 21:00 起出现明显的呼吸急促，血氧饱和度 SpO2 持续处于 91% - 93% 的中危区间波动，夜间伴随发热 38.5℃，已紧急给予低流量吸氧 (2L/min) 处理。<a class="cite-badge">🔗 溯源 (log_101)</a>
+                    </li>
+                    <li>
+                      <strong>脊柱骨骼术后严重受限</strong>：颈椎 L2-L4 压缩性骨折术后第 3 天，患者主诉伤口疼痛严重 (VAS 评分 7 分)，夜间翻身活动严重受限，肌力测定显示双下肢肌力仅为 2 级，需防范深静脉血栓。<a class="cite-badge">🔗 溯源 (log_102)</a>
+                    </li>
+                    <li>
+                      <strong>胰腺分泌负荷与血糖紊乱</strong>：空腹血糖值测定高达 9.2 mmol/L，餐后 2 小时血糖 14.5 mmol/L，波动剧烈。提示慢病控糖方案失效，胰腺负荷过重。<a class="cite-badge">🔗 溯源 (log_103)</a>
+                    </li>
+                  </ul>
+
+                  <div class="alert-box">
+                    <div class="alert-title">⚠️ 慢病警戒红线</div>
+                    <div class="alert-content">患者存在严重的青霉素过敏史，在后续针对肺部感染的抗生素抗炎治疗中，**绝对禁用**任何青霉素类及头孢类交叉过敏抗生素。</div>
+                  </div>
+
+                  <h3>2. 事件时间轴 (Timeline)</h3>
+                  <p>详细记录近期的关键诊疗与身体事件演变过程：</p>
+                  <ul>
+                    <li><strong>2026-05-30</strong>：因外伤跌倒致颈椎 L2-L4 压缩性骨折，紧急入院行钢板内固定术。</li>
+                    <li><strong>2026-06-01 10:00</strong>：术后第2天，测得血糖异常升高，开始行末梢血糖三餐前监测。</li>
+                    <li><strong>2026-06-01 21:00</strong>：主诉胸闷气促，血氧低，诊断为术后坠积性肺炎早期，开启吸氧。</li>
+                  </ul>
+                </article>
+
+              </div>
+            </div>
+
+            <!-- (B) 右侧: 常驻人体评估面板 -->
+            <aside class="wiki-sidebar-map">
+              <div class="map-header">
+                <h3>🧍 脏器受损评估 (3 处异常)</h3>
+                <p>根据 Wiki 自然语言自动识别受损系统</p>
+              </div>
+
+              <!-- 人体 SVG 显示区域 -->
+              <div class="map-body-wrapper">
+                <div class="svg-container" id="svgContainer">
+                  <!-- JS 将把 organs.svg 载入这里，如果没有则使用 silhouette 兜底 -->
+                  <svg class="body-silhouette" viewBox="0 0 394 1085" id="fallbackSilhouette">
+                    <!-- 极简人体比例框，保证无网络时也有良好视觉呈现 -->
+                    <path d="M197,80 C180,80 170,95 170,110 C170,125 180,140 197,140 C214,140 224,125 224,110 C224,95 214,80 197,80 Z 
+                             M170,145 L224,145 L235,220 L240,380 L235,580 L220,780 L215,980 L197,980 L185,780 L170,580 L160,380 L165,220 Z" />
+                  </svg>
+                  
+                  <!-- 动态叠加的热点 (以 125 140 210 945 的 viewBox 为百分比坐标) -->
+                  <!-- 肺部：pctX: 43%, pctY: 25% -->
+                  <div class="hotspot sev-high" style="left: 43%; top: 25%;" data-id="lungs">
+                    <div class="hotspot-center"></div>
+                    <div class="hotspot-ring"></div>
+                    <div class="hotspot-label">🫁 肺部</div>
+                  </div>
+                  <!-- 脊柱：pctX: 50%, pctY: 35% -->
+                  <div class="hotspot sev-high" style="left: 50%; top: 35%;" data-id="spine">
+                    <div class="hotspot-center"></div>
+                    <div class="hotspot-ring"></div>
+                    <div class="hotspot-label">🦴 脊柱</div>
+                  </div>
+                  <!-- 胰腺：pctX: 50%, pctY: 38% -->
+                  <div class="hotspot sev-medium" style="left: 50%; top: 39%;" data-id="pancreas">
+                    <div class="hotspot-center"></div>
+                    <div class="hotspot-ring"></div>
+                    <div class="hotspot-label">🩸 胰腺</div>
+                  </div>
+                  <!-- 过敏（全身性，标在左侧表皮）：pctX: 30%, pctY: 25% -->
+                  <div class="hotspot sev-high" style="left: 30%; top: 20%;" data-id="allergy">
+                    <div class="hotspot-center"></div>
+                    <div class="hotspot-ring"></div>
+                    <div class="hotspot-label">🌟 过敏</div>
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- 脏器卡片堆叠（全宽垂直堆叠） -->
+              <div class="map-cards-list">
+                
+                <div class="organ-card sev-high" data-id="lungs">
+                  <div class="organ-card-header">
+                    <span class="organ-card-title">🫁 肺部与呼吸系统</span>
+                    <span class="sev-badge sev-high-badge">🔴 严重受损</span>
+                  </div>
+                  <ul class="obs-list">
+                    <li class="obs-item">
+                      <span class="obs-bullet">▸</span>
+                      <span class="obs-text">昨晚起呼吸急促，伴发热 38.5℃</span>
+                    </li>
+                    <li class="obs-item">
+                      <span class="obs-bullet">▸</span>
+                      <span class="obs-text">血氧 SpO2 持续在 91%-93% 波动，正低流量吸氧</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="organ-card sev-high" data-id="spine">
+                  <div class="organ-card-header">
+                    <span class="organ-card-title">🦴 脊柱与骨骼系统</span>
+                    <span class="sev-badge sev-high-badge">🔴 严重受损</span>
+                  </div>
+                  <ul class="obs-list">
+                    <li class="obs-item">
+                      <span class="obs-bullet">▸</span>
+                      <span class="obs-text">颈椎 L2-L4 压缩性骨折术后，翻身活动受限</span>
+                    </li>
+                    <li class="obs-item">
+                      <span class="obs-bullet">▸</span>
+                      <span class="obs-text">VAS 伤口疼痛评分 7 分，双下肢肌力仅 2 级</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="organ-card sev-medium" data-id="pancreas">
+                  <div class="organ-card-header">
+                    <span class="organ-card-title">🩸 胰腺与血糖代谢</span>
+                    <span class="sev-badge sev-medium-badge">🟡 中度异常</span>
+                  </div>
+                  <ul class="obs-list">
+                    <li class="obs-item">
+                      <span class="obs-bullet">▸</span>
+                      <span class="obs-text">空腹血糖高至 9.2 mmol/L，餐后 14.5 mmol/L</span>
+                    </li>
+                    <li class="obs-item">
+                      <span class="obs-bullet">▸</span>
+                      <span class="obs-text">慢病控糖方案失效，胰腺分泌功能受累</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="organ-card sev-high" data-id="allergy">
+                  <div class="organ-card-header">
+                    <span class="organ-card-title">🌟 全身过敏与免疫</span>
+                    <span class="sev-badge sev-high-badge">🔴 过敏警戒</span>
+                  </div>
+                  <ul class="obs-list">
+                    <li class="obs-item">
+                      <span class="obs-bullet">▸</span>
+                      <span class="obs-text">青霉素强过敏史，抗炎治疗绝对禁用此类抗生素</span>
+                    </li>
+                  </ul>
+                </div>
+
+              </div>
+
+            </aside>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // 异步加载 Wikipedia 的 organs.svg 文件，裁剪 viewBox，替换默认 silhouette
+    fetch('/organs.svg')
+      .then(res => {
+        if (!res.ok) throw new Error('Not found');
+        return res.text();
+      })
+      .then(text => {
+        let cleanSvg = text.replace(/<\?xml[^>]*\?>/i, '').replace(/<!DOCTYPE[^>]*>/i, '');
+        // 重写 viewBox 为 125 140 210 945 以聚焦躯干
+        cleanSvg = cleanSvg.replace(/<svg([^>]*)(?:viewBox="[^"]*")?([^>]*)>/i, (match, before, after) => {
+          return `<svg ${before} viewBox="125 140 210 945" style="width:100%; height:100%; display:block;" ${after}>`;
+        });
+        
+        // 渲染进容器
+        document.getElementById('svgContainer').innerHTML = cleanSvg + 
+          document.getElementById('svgContainer').innerHTML;
+        // 移除 fallback silhouette
+        const fallback = document.getElementById('fallbackSilhouette');
+        if (fallback) fallback.remove();
+      })
+      .catch(err => {
+        console.warn('Vite 服务器未就绪或 file:// 跨域，正在使用高精轮廓兜底。错误信息:', err.message);
+      });
+
+    // 交互逻辑：热点和卡片双向联动高亮
+    const hotspots = document.querySelectorAll('.hotspot');
+    const cards = document.querySelectorAll('.organ-card');
+
+    hotspots.forEach(hotspot => {
+      hotspot.addEventListener('mouseenter', () => {
+        const id = hotspot.getAttribute('data-id');
+        const targetCard = document.querySelector(`.organ-card[data-id="${id}"]`);
+        if (targetCard) {
+          targetCard.classList.add('highlighted');
+          targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      });
+      hotspot.addEventListener('mouseleave', () => {
+        const id = hotspot.getAttribute('data-id');
+        const targetCard = document.querySelector(`.organ-card[data-id="${id}"]`);
+        if (targetCard) targetCard.classList.remove('highlighted');
+      });
+    });
+
+    cards.forEach(card => {
+      card.addEventListener('mouseenter', () => {
+        const id = card.getAttribute('data-id');
+        const hotspot = document.querySelector(`.hotspot[data-id="${id}"]`);
+        if (hotspot) {
+          hotspot.querySelector('.hotspot-center').style.transform = 'translate(-50%, -50%) scale(1.6)';
+          hotspot.querySelector('.hotspot-ring').style.transform = 'translate(-50%, -50%) scale(1.6)';
+        }
+      });
+      card.addEventListener('mouseleave', () => {
+        const id = card.getAttribute('data-id');
+        const hotspot = document.querySelector(`.hotspot[data-id="${id}"]`);
+        if (hotspot) {
+          hotspot.querySelector('.hotspot-center').style.transform = '';
+          hotspot.querySelector('.hotspot-ring').style.transform = '';
+        }
+      });
+    });
+  </script>
+</body>
+</html>
