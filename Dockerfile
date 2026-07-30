@@ -1,24 +1,17 @@
 # ── Build stage ──────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:20-alpine
 WORKDIR /app
+
+# 只安装生产依赖
 COPY package*.json ./
 RUN npm ci --omit=dev
-COPY . .
-# 前端构建（生成 dist/）
-RUN npm run build || true
 
-# ── Runtime stage ─────────────────────────────────────────
-FROM node:20-alpine AS runtime
-WORKDIR /app
-
-# 只复制运行所需文件
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
+# 复制后端所需文件
 COPY server.cjs ./
 COPY scripts/ ./scripts/
 COPY data/ ./data/
 
-# Cloud Run 强制使用 PORT 环境变量
+# Cloud Run 用 PORT 环境变量
 ENV PORT=8080
 EXPOSE 8080
 
