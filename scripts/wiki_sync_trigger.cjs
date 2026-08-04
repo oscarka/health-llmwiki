@@ -8,15 +8,17 @@
 const LLMWIKI_BASE = process.env.LLMWIKI_BASE || 'http://localhost:5050';
 
 // ── 1. System Prompt 构建器 ──
-async function buildSystemPrompt(userId, fixedInstruction = '') {
+// query 参数：传入当前用户消息，启用 prefetch 模式（>30轮后使用）
+async function buildSystemPrompt(userId, fixedInstruction = '', query = '') {
   try {
-    const response = await fetch(`${LLMWIKI_BASE}/api/clients/${userId}/context-inject`);
+    const queryParam = query ? `?query=${encodeURIComponent(query)}` : '';
+    const response = await fetch(`${LLMWIKI_BASE}/api/clients/${userId}/context-inject${queryParam}`);
     if (!response.ok) {
       console.warn(`[WikiSync] context-inject 失败 (${response.status})，使用空档案继续`);
       return fixedInstruction;
     }
-    const { user_profile, health_wiki, token_estimate } = await response.json();
-    console.log(`[WikiSync] 档案注入 token 估算: ${token_estimate.total}`);
+    const { user_profile, health_wiki, mode, token_estimate } = await response.json();
+    console.log(`[WikiSync] 档案注入 (mode: ${mode || 'full'}) token 估算: ${token_estimate.total}`);
     return `${fixedInstruction}
 
 ---
@@ -24,7 +26,7 @@ async function buildSystemPrompt(userId, fixedInstruction = '') {
 ${user_profile || '（暂无用户画像信息）'}
 
 ---
-## 用户健康档案（当前关注摘要）
+## 用户健康档案${mode === 'prefetch' ? '（按当前问题检索）' : '（当前关注摘要）'}
 ${health_wiki || '（暂无健康档案）'}
 `.trim();
   } catch (err) {

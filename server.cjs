@@ -306,6 +306,112 @@ const buildHealthContext = (wikiPages) => {
   return indexContent + toolHint;
 };
 
+// ── Prefetch：基于关键词匹配的轻量级 Section 检索 ──
+
+// 将 Wiki 页面切分为 section 片段（按 ## 标题分段）
+function splitWikiSections(wikiPages) {
+  const sections = [];
+  const skipPages = ['user_profile.md']; // 用户画像单独注入，不参与 prefetch
+  for (const [filename, content] of Object.entries(wikiPages)) {
+    if (skipPages.includes(filename) || !content) continue;
+    // 按 ## 标题切分
+    const parts = content.split(/(?=^## )/m);
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed || trimmed.length < 20) continue; // 跳过空段或太短的段
+      // 提取标题
+      const titleMatch = trimmed.match(/^##?\s+(.+)/);
+      const title = titleMatch ? titleMatch[1].trim() : '(无标题)';
+      sections.push({
+        filename,
+        title,
+        content: trimmed,
+        charCount: trimmed.length,
+      });
+    }
+  }
+  return sections;
+}
+
+// BM25-lite 评分：对 query 做分词，然后在每个 section 里统计命中数和密度
+function scoreSection(section, queryTerms) {
+  const text = (section.content + ' ' + section.filename).toLowerCase();
+  let score = 0;
+  let matchCount = 0;
+  for (const term of queryTerms) {
+    if (!term || term.length < 1) continue;
+    const regex = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    const matches = text.match(regex);
+    if (matches) {
+      matchCount += matches.length;
+      // TF 分：命中次数 / 文段长度（归一化）
+      score += matches.length / Math.sqrt(section.charCount);
+    }
+  }
+  // 标题命中额外加权（标题里出现关键词更可能是相关段）
+  const titleLower = section.title.toLowerCase();
+  for (const term of queryTerms) {
+    if (term && titleLower.includes(term)) score += 2.0;
+  }
+  return { ...section, score, matchCount };
+}
+
+// 对中文+英文混合 query 做简易分词：中文按字/2-gram，英文按空格
+function tokenizeQuery(query) {
+  const terms = [];
+  // 英文单词
+  const englishWords = query.match(/[a-zA-Z0-9]+/g) || [];
+  terms.push(...englishWords.map(w => w.toLowerCase()));
+  // 中文：提取所有中文连续片段，按 2-gram 切分
+  const chineseSegments = query.match(/[\u4e00-\u9fff]+/g) || [];
+  for (const seg of chineseSegments) {
+    if (seg.length <= 2) {
+      terms.push(seg);
+    } else {
+      for (let i = 0; i < seg.length - 1; i++) {
+        terms.push(seg.substring(i, i + 2));
+      }
+      // 也加入整段（精确匹配权重高）
+      if (seg.length <= 6) terms.push(seg);
+    }
+  }
+  return [...new Set(terms)]; // 去重
+}
+
+// Prefetch 主函数：返回最相关的 top-N section 片段
+function prefetchRelevantSections(wikiPages, query, topN = 6) {
+  const sections = splitWikiSections(wikiPages);
+  if (sections.length === 0) return [];
+  const queryTerms = tokenizeQuery(query);
+  if (queryTerms.length === 0) return [];
+
+  const scored = sections
+    .map(s => scoreSection(s, queryTerms))
+    .filter(s => s.matchCount > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topN);
+
+  return scored;
+}
+
+// 构建 prefetch 模式下的健康档案注入内容
+function buildPrefetchContext(wikiPages, query) {
+  const sections = prefetchRelevantSections(wikiPages, query, 6);
+  if (sections.length === 0) {
+    // 没有匹配，降级回全量 index.md
+    return buildHealthContext(wikiPages);
+  }
+
+  const header = `📌 **以下是与当前问题最相关的健康档案片段**（共 ${sections.length} 段，按相关性排序）：\n`;
+  const body = sections.map((s, i) =>
+    `### [${i + 1}] ${s.filename} › ${s.title}\n${s.content}`
+  ).join('\n\n---\n\n');
+
+  const toolHint = `\n---\n📋 **如需更多详情可调用工具**：\n- \`get_medical_history\` → 完整历史病史\n- \`get_medication_plan\` → 完整用药方案`;
+
+  return header + body + toolHint;
+}
+
 
 
 // ──────────────────── REST APIs ────────────────────
@@ -391,19 +497,27 @@ app.get('/api/clients/:id/wiki', (req, res) => {
 });
 
 // 5b. Agent 专用：获取格式化好的 System Prompt 注入内容
-// 返回 user_profile（全量）+ health_wiki（index.md + 工具提示）+ token 估算
+// 返回 user_profile（全量）+ health_wiki + token 估算
+// 支持 ?query=xxx 启用 prefetch 模式（按关键词检索最相关的 wiki 片段）
 app.get('/api/clients/:id/context-inject', (req, res) => {
   const { id } = req.params;
+  const query = req.query.query || ''; // prefetch 关键词
   const clients = readClients();
   if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
 
   const wikiPages = readWikiPages(id);
   const userProfile = wikiPages['user_profile.md'] || '';
-  const healthWiki = buildHealthContext(wikiPages);
+
+  // 有 query → prefetch 模式（检索相关片段）；无 query → 全量 index.md
+  const usePrefetch = query.trim().length > 0;
+  const healthWiki = usePrefetch
+    ? buildPrefetchContext(wikiPages, query)
+    : buildHealthContext(wikiPages);
 
   res.json({
     user_profile: userProfile,
     health_wiki: healthWiki,
+    mode: usePrefetch ? 'prefetch' : 'full',
     token_estimate: {
       user_profile: estimateTokens(userProfile),
       health_wiki: estimateTokens(healthWiki),
