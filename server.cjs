@@ -722,76 +722,143 @@ app.post('/api/clients/:id/sync', async (req, res) => {
 
     const currentWiki = await readWikiPages(id);
 
-    // ── Stage 1: Extractor ──
+    // ── Stage 1: Fact Parse & Categorization ──
     const s1Start = Date.now();
-    console.log('[Stage 1] Extracting clinical facts...');
+    console.log(`[Stage 1] Extracting clinical facts from ${unsyncedLogs.length} logs for client ${id}...`);
 
-    const logsForExtraction = unsyncedLogs.map(l =>
-      `[日志ID: ${l.id}] [类型: ${l.type}] [时间: ${l.timestamp}]\n${l.content}`
-    ).join('\n\n---\n\n');
+    const stage1Prompt = `你是一个非常专业且细心的医疗事实提取助手。请从下面新增的沟通记录中提取所有的临床观察、医疗干预事实，以及用户画像信息（例如：新增诊断、主诉症状、生理指标数值、化验/CT检查结果、用药变更、留置管道、护理措施、沟通偏好、个人背景等）。
+严禁凭空编造事实或添加沟通记录中未提及的内容。对于每一条事实，必须明确匹配其来自哪一条沟通记录的 ID。
 
-    const stage1Prompt = `你是一个专业的医疗信息提取助手。请从以下沟通记录中，提取出所有值得写入医疗 Wiki 档案的结构化临床事实，并以 JSON 数组格式输出。
+请将提取的事实分类为：
+1. "observation"：临床观察，包括：
+   - "signal"：基础生理信号数值（血压、心率、呼吸、体温、血氧、血糖、HRV 等具体数字）
+   - "finding"：检查检验结果（化验单、影像CT/X光/MRI、病理检查等）
+   - "functional"：患者活动、睡眠、认知、语言、神志、瘫痪或反射异常等功能状态变化
+2. "intervention"：医疗干预，包括：
+   - "treatment"：药物治疗、用药变更、输液、手术等
+   - "pipeline"：留置管道（气管插管、深静脉置管、胃管、尿管等）
+   - "protection"：安全约束、防坠床防护等
+   - "care"：体位护理、翻身排痰、皮肤护理、饮食限制等
+3. "user_profile"：用户画像信息（非医疗事实，而是关于用户本人的沟通/背景信息），包括：
+   - "preference"：沟通偏好（如"请简短回答"、"我喜欢详细解释"、"不要用专业术语"）
+   - "background"：个人背景（如"我老公是医生"、"我在北京"、"我是护士"、"我不懂医学"）
+   - "taboo"：禁忌内容（如"不要提住院"、"家人不知道病情"、"不要说癌症"）
+   - "social"：个人社会属性（如主要照护者是谁、家庭状况、医保情况、经济考量）
 
-【提取规范】：
-1. 提取客观医疗信息：生理信号（血压、心率、血糖等）、化验结果、诊断、用药、治疗干预、症状主诉、功能变化。
-2. 提取用户画像信息：年龄、性别、职业、生活习惯、沟通偏好等有助于健康管理的背景信息。
-3. 每条事实必须关联其来源日志 ID（evidence_refs）。
-4. 绝对禁止：AI确诊、AI诊断、危及生命等诊断性或恐慌性表达。
-5. 对每条 observation 事实，估算 attention_score（0-1），严重/紧急情况给高分。
+新增沟通记录内容如下：
+${unsyncedLogs.map(log => `
+[ID: ${log.id}] [类型: ${log.type}] [标题: ${log.title}] [时间: ${log.timestamp}]
+内容: 
+${log.content}
+`).join('\n\n')}
 
-输出格式（JSON 数组）：
-[
-  {
-    "type": "observation | intervention | user_profile",
-    "subtype": "signal | finding | functional | treatment | pipeline | protection | care | basic | preference | note | social",
-    "content": "客观描述",
-    "log_id": "对应的日志ID",
-    "attention_score": 0.5
-  }
-]
-
-沟通记录：
-${logsForExtraction}`;
+请直接输出一个合法的 JSON 对象，格式必须符合以下示例，不要有任何 Markdown 代码块包裹或解释性前缀后缀：
+{
+  "facts": [
+    {
+      "type": "observation",
+      "subtype": "signal",
+      "content": "血压 198/112 mmHg",
+      "log_id": "log_..."
+    },
+    {
+      "type": "observation",
+      "subtype": "functional",
+      "content": "神志呈嗜睡/浅昏迷状态，右侧肢体肌力 0 级",
+      "log_id": "log_..."
+    },
+    {
+      "type": "intervention",
+      "subtype": "treatment",
+      "content": "静脉滴注甘露醇 250ml",
+      "log_id": "log_..."
+    },
+    {
+      "type": "user_profile",
+      "subtype": "preference",
+      "content": "用户希望用简单易懂的语言解释，不要太多专业术语",
+      "log_id": "log_..."
+    },
+    {
+      "type": "user_profile",
+      "subtype": "background",
+      "content": "用户的丈夫是骨科医生，有一定医学基础",
+      "log_id": "log_..."
+    }
+  ]
+}`;
 
     const stage1Response = await getOpenAI().chat.completions.create({
       model: process.env.SYNC_MODEL || 'gemini-3.6-flash',
       messages: [
-        { role: 'system', content: 'You are a medical information extraction assistant. Output strict JSON array only.' },
+        { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
         { role: 'user', content: stage1Prompt }
       ],
-      temperature: 0.05,
+      temperature: 0.1,
       response_format: { type: 'json_object' }
     });
 
-    const stage1Content = stage1Response.choices[0]?.message?.content || '[]';
-    let rawFacts;
+    const stage1Content = stage1Response.choices[0]?.message?.content || '{}';
+    let parsedFactsObj;
     try {
-      const parsed = robustParseJson(stage1Content);
-      rawFacts = Array.isArray(parsed) ? parsed : (parsed.facts || parsed.items || []);
+      parsedFactsObj = robustParseJson(stage1Content);
     } catch (e) {
-      throw new Error('Stage 1 JSON 解析失败: ' + e.message);
+      console.error('[Stage 1] JSON 解析失败:', stage1Content);
+      throw new Error('临床事实提取失败：' + e.message);
     }
 
-    const facts = rawFacts.map(f => ({
-      type: f.type || 'observation',
-      subtype: f.subtype || 'finding',
-      content: f.content || '',
-      log_id: f.log_id || f.evidence_refs?.[0] || null,
-      attention_score: typeof f.attention_score === 'number' ? f.attention_score : 0.3,
-    })).filter(f => f.content);
+    const facts = parsedFactsObj.facts || [];
+    console.log(`[Stage 1] ✓ 完成 (${Date.now() - s1Start}ms, ${facts.length} 条事实)`);
 
-    console.log(`[Stage 1] ✓ 提取 ${facts.length} 条事实 (${Date.now() - s1Start}ms)`);
-
-    // ── Stage 2: Scorer（Attention Score 校准）──
+    // ── Stage 2: Heuristic-based Attention Scoring ──
     const s2Start = Date.now();
-    const highPriorityKeywords = ['昏迷', '嗜睡', '意识障碍', '失语', '偏瘫', '脑出血', '脑疝', '呼吸困难', '窒息', '大出血', '呼吸衰竭'];
-    const mediumPriorityKeywords = ['骨折', '发热', '体温过高', '心率过快', '心动过速', '胸闷', '气促', '低血压'];
+    console.log('[Stage 2] Calculating attention scores for observations...');
     facts.forEach(fact => {
       if (fact.type === 'observation') {
-        let score = fact.attention_score || 0.3;
-        const text = fact.content;
-        for (const kw of highPriorityKeywords) { if (text.includes(kw)) score = Math.max(score, 0.9); }
-        for (const kw of mediumPriorityKeywords) { if (text.includes(kw)) score = Math.max(score, 0.75); }
+        let score = 0.3; // 默认基础分
+        const text = fact.content.toLowerCase();
+
+        // 1. 血氧饱和度 (SpO2) 异常
+        const spo2Match = text.match(/(?:spo2|血氧饱和度|血氧)\s*(?:[<≤：:]\s*|仅|是|为)?\s*(\d+)%/i);
+        if (spo2Match) {
+          const val = parseInt(spo2Match[1]);
+          if (val < 90) score = Math.max(score, 0.95);
+          else if (val < 95) score = Math.max(score, 0.7);
+        }
+
+        // 2. 血压异常
+        const bpMatch = text.match(/(\d{3})\s*\/\s*(\d{2,3})/);
+        if (bpMatch) {
+          const sys = parseInt(bpMatch[1]);
+          const dia = parseInt(bpMatch[2]);
+          if (sys >= 180 || dia >= 110) score = Math.max(score, 0.9);
+          else if (sys >= 140 || dia >= 90) score = Math.max(score, 0.6);
+        }
+
+        // 3. 血糖异常
+        const glucoseMatch = text.match(/(?:血糖|指尖血糖|空腹血糖|餐后血糖)\s*(?:[：:]|是|为)?\s*(\d+(?:\.\d+)?)\s*mmol/i);
+        if (glucoseMatch) {
+          const val = parseFloat(glucoseMatch[1]);
+          if (val > 10.0 || val < 3.9) score = Math.max(score, 0.85);
+          else if (val > 7.0) score = Math.max(score, 0.6);
+        }
+
+        // 4. 重大神经与意识受损核心诊断/主诉关键词
+        const highPriorityKeywords = [
+          '昏迷', '嗜睡', '意识障碍', '失语', '偏瘫', '肌力0级', '肌力1级', '肌力2级', '肌力3级',
+          '脑出血', '瞳孔反射', '脑疝', '呼吸困难', '窒息', '大出血', '呼吸衰竭'
+        ];
+        const mediumPriorityKeywords = [
+          '骨折', '发热', '体温过高', '心率过快', '心动过速', '胸闷', '气促', '低血压'
+        ];
+
+        for (const kw of highPriorityKeywords) {
+          if (text.includes(kw)) score = Math.max(score, 0.9);
+        }
+        for (const kw of mediumPriorityKeywords) {
+          if (text.includes(kw)) score = Math.max(score, 0.75);
+        }
+
         fact.attention_score = parseFloat(score.toFixed(2));
       }
     });
