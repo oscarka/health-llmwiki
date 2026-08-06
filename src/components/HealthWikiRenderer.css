@@ -1,0 +1,818 @@
+/* HealthWikiRenderer.css - 通用人本健康 Wiki 渲染引擎样式规范 (Light Theme) */
+
+/* 核心正文排版系统 */
+.wiki-rendered-view {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.8;
+  color: #434654; /* M3 on-surface-variant */
+  padding: 1.5rem 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* 标题样式 */
+.wiki-rendered-view h1 {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #181c23; /* M3 on-surface */
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px solid #dfe2ed;
+  padding-bottom: 0.75rem;
+}
+
+.wiki-rendered-view h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #181c23;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wiki-rendered-view h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #181c23;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* 列表与文字 */
+.wiki-rendered-view p {
+  margin-bottom: 1.25rem;
+}
+
+.wiki-rendered-view ul, .wiki-rendered-view ol {
+  margin-bottom: 1.25rem;
+  padding-left: 1.5rem;
+}
+
+.wiki-rendered-view li {
+  margin-bottom: 0.5rem;
+}
+
+/* 🪄 AI 导读/摘要卡片 */
+.ai-summary-card {
+  background: linear-gradient(135deg, rgba(241, 243, 255, 0.9) 0%, rgba(255, 255, 255, 0.9) 100%);
+  border: 1px solid rgba(0, 61, 166, 0.15);
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 20px rgba(0, 61, 166, 0.03);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 61, 166, 0.06);
+  border-color: rgba(0, 61, 166, 0.25);
+}
+
+.ai-summary-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(to bottom, #003da6, #006c47);
+}
+
+.ai-summary-header {
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  color: #003da6;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.ai-summary-sparkle {
+  animation: pulse-sparkle 2s infinite ease-in-out;
+}
+
+.ai-summary-content {
+  font-size: 0.9rem;
+  color: #434654;
+  line-height: 1.6;
+}
+
+/* 🌿 交互思维脑图板块 */
+.wiki-mindmap-section {
+  background-color: #ffffff;
+  border: 1px solid #dfe2ed;
+  border-radius: 16px;
+  margin-bottom: 2rem;
+  overflow: hidden;
+}
+
+.wiki-mindmap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background-color: #f1f3ff;
+  border-bottom: 1px solid #dfe2ed;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wiki-mindmap-header span {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #003da6;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wiki-mindmap-container {
+  padding: 2rem;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  background-color: #f8fafc;
+  transition: max-height 0.3s ease;
+  border-bottom: 1px solid #dfe2ed;
+}
+
+/* 基于 CSS Flexbox 的自适应水平思维导图 */
+.mindmap-tree {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 100%;
+  position: relative;
+  padding: 1.5rem 0.5rem;
+}
+
+/* 根节点列 */
+.mindmap-root-col {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  padding-right: 20px;
+}
+
+/* 根节点样式 */
+.mindmap-root-node {
+  background: linear-gradient(135deg, #0052d9 0%, #003da6 100%);
+  color: #ffffff;
+  font-weight: 700;
+  padding: 0.6rem 1.4rem;
+  border-radius: 9999px;
+  box-shadow: 0 4px 12px rgba(0, 61, 166, 0.2);
+  font-size: 0.95rem;
+  position: relative;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+/* 根节点右向水平连接线 */
+.mindmap-root-col::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 2px;
+  background-color: #b4c5ff;
+  z-index: 1;
+}
+
+/* 分支总列 */
+.mindmap-branches-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  flex: 1;
+  position: relative;
+}
+
+/* 每一个分支行 */
+.mindmap-branch-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  position: relative;
+  padding-left: 20px;
+}
+
+/* 分支行左侧拼合垂直连线 */
+.mindmap-branch-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: #b4c5ff;
+  z-index: 1;
+}
+
+/* 水平从垂直线接入分支的横线 */
+.mindmap-branch-row::after {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 2px;
+  background-color: #b4c5ff;
+  z-index: 1;
+}
+
+/* 裁剪首尾分支垂直连线 */
+.mindmap-branch-row:first-child::before {
+  top: 50%;
+}
+
+.mindmap-branch-row:last-child::before {
+  bottom: 50%;
+}
+
+.mindmap-branch-row:only-child::before {
+  display: none;
+}
+
+/* 分支标题包装器 */
+.mindmap-branch-node-wrapper {
+  display: flex;
+  align-items: center;
+  position: relative;
+  padding-right: 20px;
+}
+
+/* 分支标题向右的水平连线 */
+.mindmap-branch-node-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 2px;
+  background-color: #b4c5ff;
+  z-index: 1;
+}
+
+/* 没有叶子节点时，不显示右向连接线 */
+.mindmap-branch-row:has(.mindmap-leaves-col:empty) .mindmap-branch-node-wrapper::after {
+  display: none;
+}
+
+.mindmap-branch-node {
+  background-color: #f1f3ff;
+  border: 1.5px solid #b4c5ff;
+  color: #003da6;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 61, 166, 0.04);
+  position: relative;
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.mindmap-branch-node:hover {
+  background-color: #003da6;
+  color: #ffffff;
+  border-color: #003da6;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(0, 61, 166, 0.2);
+}
+
+/* 叶节点包装列 */
+.mindmap-leaves-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  position: relative;
+  padding-left: 20px;
+}
+
+/* 叶子节点左侧垂直连接线 */
+.mindmap-leaves-col::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 16px; /* 从第一个叶子节点的中心开始 */
+  bottom: 16px; /* 终止在最后一个叶子节点的中心 */
+  width: 2px;
+  background-color: #b4c5ff;
+  z-index: 1;
+}
+
+.mindmap-leaves-col:empty::before {
+  display: none;
+}
+
+/* 每一个叶节点容器 */
+.mindmap-leaf-node {
+  background-color: #ffffff;
+  border: 1px solid #dfe2ed;
+  color: #434654;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* 从叶节点左侧垂直线向右接入叶节点的水平小支线 */
+.mindmap-leaf-node::after {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 2px;
+  background-color: #b4c5ff;
+  z-index: 1;
+}
+
+.mindmap-leaf-node:hover {
+  background-color: #f8fafc;
+  color: #003da6;
+  border-color: #b4c5ff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 61, 166, 0.08);
+}
+
+.mindmap-leaf-node .leaf-icon {
+  color: #737686;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.mindmap-leaf-node:hover .leaf-icon {
+  color: #003da6;
+  opacity: 1;
+}
+
+/* 键值对定制样式 */
+.mindmap-leaf-node .leaf-label {
+  font-weight: 700;
+  color: #181c23;
+}
+
+.mindmap-leaf-node .leaf-value {
+  font-weight: 400;
+  color: #434654;
+}
+
+.mindmap-leaf-node:hover .leaf-label {
+  color: #003da6;
+}
+
+/* 🚨 医疗红线警示卡片组 */
+.alert-block {
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  margin: 1.5rem 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+  position: relative;
+  font-size: 0.95rem;
+}
+
+.alert-block > strong {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+/* 红线警示 ([!IMPORTANT]) */
+.alert-block.alert-important {
+  background: #ffdad6;
+  border-left: 5px solid #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-left-width: 5px;
+}
+
+.alert-block.alert-important strong {
+  color: #93000a;
+}
+
+.alert-block.alert-important::after {
+  content: '';
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  width: 8px;
+  height: 8px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  animation: pulse-red-dot 1.8s infinite;
+}
+
+/* 指标警示 ([!WARNING]) */
+.alert-block.alert-warning {
+  background: rgba(245, 158, 11, 0.04);
+  border-left: 5px solid #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-left-width: 5px;
+}
+
+.alert-block.alert-warning strong {
+  color: #9a4500;
+}
+
+/* 健康提示 ([!TIP]) */
+.alert-block.alert-tip {
+  background: rgba(16, 185, 129, 0.04);
+  border-left: 5px solid #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-left-width: 5px;
+}
+
+.alert-block.alert-tip strong {
+  color: #006c47;
+}
+
+/* 核心备注 ([!NOTE]) */
+.alert-block.alert-note {
+  background: rgba(0, 82, 217, 0.04);
+  border-left: 5px solid #0052d9;
+  border: 1px solid rgba(0, 82, 217, 0.2);
+  border-left-width: 5px;
+}
+
+.alert-block.alert-note strong {
+  color: #003da6;
+}
+
+/* 🔗 双向溯源引用的通用角标 */
+.ref-citation-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #003da6;
+  background-color: #f1f3ff;
+  border: 1px solid #b4c5ff;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 3px;
+  vertical-align: super;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.ref-citation-badge:hover {
+  background-color: #003da6;
+  color: #ffffff;
+  border-color: #003da6;
+  box-shadow: 0 2px 4px rgba(0, 61, 166, 0.15);
+  transform: translateY(-1px);
+}
+
+.ref-citation-badge:active {
+  transform: translateY(0);
+}
+
+/* 🤖 划词选取 AI 伴随气泡 Popover */
+.selection-popover {
+  position: absolute;
+  z-index: 1000;
+  background: #ffffff;
+  border: 1px solid #dfe2ed;
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  gap: 2px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+  animation: popover-fade-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.popover-btn {
+  background: transparent;
+  border: none;
+  color: #434654;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.popover-btn:hover {
+  background-color: #f1f3ff;
+  color: #003da6;
+}
+
+.popover-btn.primary {
+  color: #003da6;
+}
+
+.popover-btn.primary:hover {
+  background-color: #f1f3ff;
+}
+
+/* 划词 AI 处理加载状态与浮动对话 */
+.popover-loading-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #b4c5ff;
+  border-top-color: #003da6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* 渐变文本高亮（配合同步增量 Diff 使用） */
+.diff-added {
+  background-color: rgba(0, 108, 71, 0.05) !important;
+  border-left: 3px solid #006c47 !important;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0 4px 4px 0;
+  display: inline-block;
+  width: 100%;
+}
+
+/* 关键帧动画 */
+@keyframes pulse-sparkle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.9); }
+}
+
+@keyframes pulse-red-dot {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+@keyframes popover-fade-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── 5. 右侧滑入式对照面板 ── */
+.trace-slider-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(24, 28, 35, 0.3);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  display: flex;
+  justify-content: flex-end;
+  animation: fade-in 0.2s ease;
+}
+
+.trace-slider-panel {
+  width: 480px;
+  height: 100%;
+  background-color: #ffffff;
+  box-shadow: -10px 0 30px -5px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  animation: slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.trace-slider-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #dfe2ed;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.trace-slider-header h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #181c23;
+  margin: 0;
+}
+
+.btn-close-slider {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #737686;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.btn-close-slider:hover {
+  background-color: #f1f3ff;
+  color: #003da6;
+}
+
+.trace-slider-meta {
+  padding: 1.25rem 1.5rem;
+  background-color: #f9f9ff;
+  border-bottom: 1px solid #dfe2ed;
+}
+
+.trace-slider-body {
+  padding: 1.5rem;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.trace-instruction {
+  font-size: 0.8rem;
+  color: #003da6;
+  background-color: #f1f3ff;
+  border: 1px solid #b4c5ff;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+}
+
+.trace-original-content {
+  flex: 1;
+  background-color: #ffffff;
+  border: 1px solid #dfe2ed;
+  border-radius: 8px;
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+.trace-original-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #434654;
+}
+
+@keyframes slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ── 结构化卡片 Block 样式 (Risk Card) ── */
+.structured-block-card {
+  border-radius: 16px;
+  border: 1px solid #dfe2ed !important;
+  margin: 1.25rem 0;
+  background: #ffffff !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.structured-block-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-hover) !important;
+  background: #ffffff !important;
+  box-shadow: 0 8px 25px rgba(0, 61, 166, 0.05);
+}
+
+.structured-block-card .card-header {
+  padding: 0.75rem 1.25rem;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid #dfe2ed;
+}
+
+.structured-block-card .card-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.structured-block-card .card-body {
+  padding: 1.25rem;
+  font-size: 0.925rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.structured-block-card .card-content-text {
+  font-weight: 500;
+}
+
+/* 观察卡片 (Observation Card) */
+.observation-card {
+  border-left: 4px solid var(--primary) !important;
+}
+.observation-card .card-header {
+  background: rgba(0, 82, 217, 0.03);
+  color: var(--color-primary);
+}
+
+/* 常规关注 */
+.attention-normal-card {
+  border-left-color: #0052d9 !important;
+}
+.attention-normal-badge {
+  background-color: rgba(0, 82, 217, 0.05);
+  color: #0052d9;
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-left: auto;
+  border: 1px solid rgba(0, 82, 217, 0.12);
+}
+
+/* 中危关注 */
+.attention-medium-card {
+  border-left-color: #f59e0b !important;
+  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.02);
+}
+.attention-medium-badge {
+  background-color: rgba(245, 158, 11, 0.05);
+  color: #9a4500;
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-left: auto;
+  border: 1px solid rgba(245, 158, 11, 0.12);
+}
+
+/* 高危关注 - 心跳红色发光动效 */
+.attention-high-card {
+  border-left-color: #ef4444 !important;
+  animation: pulse-high-glow 2s infinite ease-in-out;
+}
+.attention-high-badge {
+  background-color: #ffdad6;
+  color: #ba1a1a;
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-left: auto;
+  border: 1px solid rgba(186, 26, 26, 0.12);
+}
+
+/* 干预卡片 (Intervention Card) */
+.intervention-card {
+  border-left: 4px solid var(--success) !important;
+}
+.intervention-card .card-header {
+  background: rgba(0, 108, 71, 0.03);
+  color: var(--success);
+}
+
+/* 警示心跳红波动效 */
+@keyframes pulse-high-glow {
+  0%, 100% {
+    box-shadow: 0 4px 6px rgba(239, 68, 68, 0.02);
+    border-left-color: rgba(239, 68, 68, 0.8);
+  }
+  50% {
+    box-shadow: 0 8px 18px rgba(239, 68, 68, 0.08);
+    border-left-color: rgba(239, 68, 68, 1);
+  }
+}

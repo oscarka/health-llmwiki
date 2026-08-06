@@ -13,16 +13,25 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// ──────────────────── 前端静态文件 ────────────────────
+// Vite build 产物在 dist/，API 路由优先（/api/*），其余交给前端路由
+const DIST_DIR = path.join(__dirname, 'dist');
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+}
+
 // ──────────────────── 数据存储路径配置 ────────────────────
 const DATA_DIR = path.join(__dirname, 'data');
 const CLIENTS_FILE = path.join(DATA_DIR, 'clients.json');
 const WIKI_DIR = path.join(DATA_DIR, 'wiki');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
+const SYNC_HISTORY_DIR = path.join(DATA_DIR, 'sync_history');
 
 // 确保目录存在
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 if (!fs.existsSync(WIKI_DIR)) fs.mkdirSync(WIKI_DIR);
 if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR);
+if (!fs.existsSync(SYNC_HISTORY_DIR)) fs.mkdirSync(SYNC_HISTORY_DIR);
 if (!fs.existsSync(CLIENTS_FILE)) fs.writeFileSync(CLIENTS_FILE, JSON.stringify([], null, 2));
 
 // ──────────────────── 辅助工具函数 ────────────────────
@@ -80,6 +89,21 @@ const writeWikiPages = (clientId, pages) => {
   });
 };
 
+// ── Sync History（Wiki 变更日志）────────────────────────────
+const readSyncHistory = (clientId) => {
+  const file = path.join(SYNC_HISTORY_DIR, `${clientId}.json`);
+  if (!fs.existsSync(file)) return [];
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
+};
+
+const appendSyncHistory = (clientId, entry) => {
+  const file = path.join(SYNC_HISTORY_DIR, `${clientId}.json`);
+  const history = readSyncHistory(clientId);
+  history.unshift(entry);               // 最新的放最前
+  if (history.length > 100) history.length = 100; // 最多保留 100 条
+  fs.writeFileSync(file, JSON.stringify(history, null, 2));
+};
+
 const deleteClientData = (clientId) => {
   // 删除 logs
   const logFile = path.join(LOGS_DIR, `${clientId}.json`);
@@ -90,7 +114,12 @@ const deleteClientData = (clientId) => {
   if (fs.existsSync(clientWikiDir)) {
     fs.rmSync(clientWikiDir, { recursive: true, force: true });
   }
+
+  // 删除 sync history
+  const syncFile = path.join(SYNC_HISTORY_DIR, `${clientId}.json`);
+  if (fs.existsSync(syncFile)) fs.unlinkSync(syncFile);
 };
+
 
 // 健壮的 JSON 解析与自动修复函数，防止 LLM 输出截断或转义错误导致 JSON.parse 崩溃
 const robustParseJson = (str) => {
@@ -424,13 +453,20 @@ app.get('/api/clients', (req, res) => {
 
 // 2. 创建客户
 app.post('/api/clients', (req, res) => {
-  const { name, age, gender, phone, allergies } = req.body;
+  const { id: externalId, name, age, gender, phone, allergies } = req.body;
   if (!name) return res.status(400).json({ error: '姓名是必填项' });
 
   const clients = readClients();
-  const randomSuffix = Math.random().toString(36).substring(2, 6);
+
+  // 支持外部指定 id（Agent 自动建档场景），如已存在则直接返回
+  const clientId = externalId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const existing = clients.find(c => c.id === clientId);
+  if (existing) {
+    return res.status(200).json(existing); // 幂等：已存在就返回，不报错
+  }
+
   const newClient = {
-    id: `client_${Date.now()}_${randomSuffix}`,
+    id: clientId,
     name,
     age: age ? parseInt(age) : null,
     gender,
@@ -447,6 +483,7 @@ app.post('/api/clients', (req, res) => {
   const defaultWiki = createDefaultWiki(newClient);
   writeWikiPages(newClient.id, defaultWiki);
 
+  console.log(`[CreateClient] 新建客户 id=${clientId} name=${name} external=${!!externalId}`);
   res.status(201).json(newClient);
 });
 
@@ -503,10 +540,26 @@ app.get('/api/clients/:id/context-inject', (req, res) => {
   const { id } = req.params;
   const query = req.query.query || ''; // prefetch 关键词
   const clients = readClients();
-  if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
+  const client = clients.find(c => c.id === id);
+  if (!client) return res.status(404).json({ error: '客户不存在' });
 
   const wikiPages = readWikiPages(id);
   const userProfile = wikiPages['user_profile.md'] || '';
+
+  // ── 新用户（从未 sync 过）：不注入空模板，避免误导 ──
+  if (!client.lastSyncAt) {
+    const brief = client.allergies ? `⚠️ 过敏史：${client.allergies}` : '';
+    return res.json({
+      user_profile: userProfile,
+      health_wiki: brief,  // 只返回关键安全信息（过敏），不返回占位模板
+      mode: 'new_user',
+      token_estimate: {
+        user_profile: estimateTokens(userProfile),
+        health_wiki: estimateTokens(brief),
+        total: estimateTokens(userProfile) + estimateTokens(brief)
+      }
+    });
+  }
 
   // 有 query → prefetch 模式（检索相关片段）；无 query → 全量 index.md
   const usePrefetch = query.trim().length > 0;
@@ -535,6 +588,7 @@ app.put('/api/clients/:id/wiki/:pageName', (req, res) => {
   const clients = readClients();
   if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
   if (!pageName.endsWith('.md')) return res.status(400).json({ error: '仅支持保存 .md 格式的 Wiki 页面' });
+  if (pageName.includes('..') || pageName.includes('/') || pageName.includes('\\')) return res.status(400).json({ error: '页面名称不合法' });
 
   const pages = { [pageName]: content };
   writeWikiPages(id, pages);
@@ -626,12 +680,27 @@ app.post('/api/clients/:id/logs/batch', (req, res) => {
   });
 });
 
-// ──────────────────── 豆包大模型增量汇总逻辑 ────────────────────
+// ──────────────────── LLM 增量汇总逻辑（Gemini Flash via OpenAI 兼容）────────────────────
 
-const openai = new OpenAI({
-  apiKey: process.env.ARK_API_KEY,
-  baseURL: process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3',
-});
+let _openaiClient = null;
+function getOpenAI() {
+  if (!_openaiClient) {
+    // 优先用 Gemini，降级到 Doubao
+    const apiKey = process.env.GEMINI_API_KEY || process.env.ARK_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY 或 ARK_API_KEY 环境变量未设置，无法调用 LLM');
+    }
+    const baseURL = process.env.GEMINI_API_KEY
+      ? 'https://generativelanguage.googleapis.com/v1beta/openai/'
+      : (process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3');
+    console.log(`[LLM] 使用 ${process.env.GEMINI_API_KEY ? 'Gemini' : 'Doubao'} baseURL=${baseURL}`);
+    _openaiClient = new OpenAI({
+      apiKey,
+      baseURL,
+    });
+  }
+  return _openaiClient;
+}
 
 app.post('/api/clients/:id/sync', async (req, res) => {
   const { id } = req.params;
@@ -650,11 +719,13 @@ app.post('/api/clients/:id/sync', async (req, res) => {
   const currentWiki = readWikiPages(id);
 
   try {
+    const syncStartTime = Date.now();
     // -------------------------------------------------------------
     // Stage 1: Fact Parse & Categorization
     // -------------------------------------------------------------
+    const s1Start = Date.now();
     console.log(`[Stage 1] Extracting clinical facts from ${unsyncedLogs.length} logs for client ${id}...`);
-    const stage1Prompt = `你是一个非常专业且细心的医疗事实提取助手。请从下面新增的沟通记录中提取所有的临床观察与医疗干预事实（例如：新增诊断、主诉症状、生理指标数值、化验/CT检查结果、用药变更、留置管道、护理措施等）。
+    const stage1Prompt = `你是一个非常专业且细心的医疗事实提取助手。请从下面新增的沟通记录中提取所有的临床观察、医疗干预事实，以及用户画像信息（例如：新增诊断、主诉症状、生理指标数值、化验/CT检查结果、用药变更、留置管道、护理措施、沟通偏好、个人背景等）。
 严禁凭空编造事实或添加沟通记录中未提及的内容。对于每一条事实，必须明确匹配其来自哪一条沟通记录 of ID。
 
 请将提取的事实分类为：
@@ -667,6 +738,11 @@ app.post('/api/clients/:id/sync', async (req, res) => {
    - "pipeline"：留置管道（气管插管、深静脉置管、胃管、尿管等）
    - "protection"：安全约束、防坠床防护等
    - "care"：体位护理、翻身排痰、皮肤护理、饮食限制等
+3. "user_profile"：用户画像信息（非医疗事实，而是关于用户本人的沟通/背景信息），包括：
+   - "preference"：沟通偏好（如"请简短回答"、"我喜欢详细解释"、"不要用专业术语"）
+   - "background"：个人背景（如"我老公是医生"、"我在北京"、"我是护士"、"我不懂医学"）
+   - "taboo"：禁忌内容（如"不要提住院"、"家人不知道病情"、"不要说癌症"）
+   - "social"：个人社会属性（如主要照护者是谁、家庭状况、医保情况、经济考量）
 
 新增沟通记录内容如下：
 ${unsyncedLogs.map(log => `
@@ -695,12 +771,24 @@ ${log.content}
       "subtype": "treatment",
       "content": "静脉滴注甘露醇 250ml",
       "log_id": "log_..."
+    },
+    {
+      "type": "user_profile",
+      "subtype": "preference",
+      "content": "用户希望用简单易懂的语言解释，不要太多专业术语",
+      "log_id": "log_..."
+    },
+    {
+      "type": "user_profile",
+      "subtype": "background",
+      "content": "用户的丈夫是骨科医生，有一定医学基础",
+      "log_id": "log_..."
     }
   ]
 }`;
 
-    const stage1Response = await openai.chat.completions.create({
-      model: process.env.ARK_MODEL || 'doubao-1.5-pro-32k-250115',
+    const stage1Response = await getOpenAI().chat.completions.create({
+      model: process.env.SYNC_MODEL || 'gemini-3.6-flash',
       messages: [
         { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
         { role: 'user', content: stage1Prompt }
@@ -719,11 +807,12 @@ ${log.content}
     }
 
     const facts = parsedFactsObj.facts || [];
-    console.log(`[Stage 1] Successfully extracted ${facts.length} clinical facts.`);
+    console.log(`[Stage 1] ✓ 完成 (${Date.now() - s1Start}ms, ${facts.length} 条事实)`);
 
     // -------------------------------------------------------------
     // Stage 2: Heuristic-based Attention Scoring
     // -------------------------------------------------------------
+    const s2Start = Date.now();
     console.log('[Stage 2] Calculating attention scores for observations...');
     facts.forEach(fact => {
       if (fact.type === 'observation') {
@@ -778,17 +867,20 @@ ${log.content}
         fact.attention_score = parseFloat(score.toFixed(2));
       }
     });
-    console.log('[Stage 2] Attention scoring complete.');
+    console.log(`[Stage 2] ✓ 完成 (${Date.now() - s2Start}ms)`);
 
     // -------------------------------------------------------------
     // Stage 3: Assembler & Merge into Wiki pages
     // -------------------------------------------------------------
+    const s3Start = Date.now();
     console.log('[Stage 3] Merging clinical facts and generating formatted markdown blocks...');
     
     // 格式化传入 Stage 3 的事实列表，确保大模型获得清晰的数据关联
     const formattedFactsForLLM = facts.map((f, idx) => {
       if (f.type === 'observation') {
         return `[事实 #${idx}] 类型: observation, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'}, 推荐 Attention Score: ${f.attention_score}`;
+      } else if (f.type === 'user_profile') {
+        return `[事实 #${idx}] 类型: user_profile, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'} → 写入 user_profile.md`;
       } else {
         return `[事实 #${idx}] 类型: intervention, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'}`;
       }
@@ -839,7 +931,8 @@ ${formattedFactsForLLM}
        - 溯源ID
      \`\`\`
 4. **AI 安全红线**：严禁包含以下诊断性或恐慌性词语：\`AI确诊\`、\`AI诊断为\`、\`人工智能诊断\`、\`confirmed by AI\`、\`AI confirms\`、\`危及生命\`、\`life-threatening\`、\`AI判断\`。仅客观记录观察，禁止越权诊断！
-5. **输出格式**：请直接输出一个合法的 JSON 对象，只需要包含【被更新或修改的文件】作为 Key（例如只包含 "medical_history.md" 和 "index.md"，未被修改的文件不需要包含在 JSON 中，以节省 Token 并防止截断），Value 是该文件更新后的完整 Markdown 内容。请确保输出是一个严格合法的 JSON 对象，不要包含任何 Markdown 格式包裹（如 \`\`\`json ），不要有任何解释性前缀或后缀。
+5. **用户画像信息（user_profile 类型事实）**：如果新增事实中包含 type: "user_profile" 的条目，请将其内容写入 \`user_profile.md\` 对应的章节（基本背景、沟通偏好、必须注意事项、个人与社会属性）。用普通 Markdown 文字写入，不使用 block 格式。如果某个章节已经有内容，将新信息追加到已有内容后面。
+6. **输出格式**：请直接输出一个合法的 JSON 对象，只需要包含【被更新或修改的文件】作为 Key（例如只包含 "medical_history.md" 和 "index.md"，未被修改的文件不需要包含在 JSON 中，以节省 Token 并防止截断），Value 是该文件更新后的完整 Markdown 内容。请确保输出是一个严格合法的 JSON 对象，不要包含任何 Markdown 格式包裹（如 \`\`\`json ），不要有任何解释性前缀或后缀。
 
 示例输出格式:
 {
@@ -847,8 +940,8 @@ ${formattedFactsForLLM}
   "medication_plan.md": "# 用药方案..."
 }`;
 
-    const stage3Response = await openai.chat.completions.create({
-      model: process.env.ARK_MODEL || 'doubao-1.5-pro-32k-250115',
+    const stage3Response = await getOpenAI().chat.completions.create({
+      model: process.env.SYNC_MODEL || 'gemini-3.6-flash',
       messages: [
         { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
         { role: 'user', content: stage3Prompt }
@@ -867,7 +960,7 @@ ${formattedFactsForLLM}
     }
 
     // 验证返回的 Wiki 页面是否有效
-    const fileKeys = ['index.md', 'medical_history.md', 'medication_plan.md', 'communication_timeline.md'];
+    const fileKeys = ['index.md', 'medical_history.md', 'medication_plan.md', 'communication_timeline.md', 'user_profile.md'];
     const validUpdate = fileKeys.some(key => updatedWiki[key] !== undefined);
     if (!validUpdate) {
       throw new Error('大模型未能返回任何有效的 Wiki 页面 JSON 数据');
@@ -886,10 +979,29 @@ ${formattedFactsForLLM}
     client.lastSyncAt = new Date().toISOString();
     writeClients(clients);
 
+    const s1Ms = s2Start - s1Start;
+    const s2Ms = s3Start - s2Start;
+    const s3Ms = Date.now() - s3Start;
+    const totalMs = Date.now() - syncStartTime;
+    console.log(`[Stage 3] ✓ 完成 (${s3Ms}ms)`);
+    console.log(`[Sync] ✓ 全流程完成 总耗时=${totalMs}ms (S1=${s1Ms}ms S2=${s2Ms}ms S3=${s3Ms}ms)`);
+
+    // ── 写入 Wiki 变更日志（sync history）──
+    const syncEntry = {
+      timestamp: new Date().toISOString(),
+      trigger: req.body?.trigger || 'manual',
+      logsProcessed: unsyncedLogs.length,
+      factsExtracted: facts.length,
+      updatedFiles: Object.keys(updatedWiki),
+      timingMs: { total: totalMs, stage1: s1Ms, stage2: s2Ms, stage3: s3Ms }
+    };
+    appendSyncHistory(id, syncEntry);
+
     res.json({
       message: 'Wiki 同步更新成功！',
       wikiUpdated: true,
-      updatedFiles: Object.keys(updatedWiki)
+      updatedFiles: Object.keys(updatedWiki),
+      timing_ms: { total: totalMs, stage1: s1Ms, stage2: s2Ms, stage3: s3Ms }
     });
 
   } catch (err) {
@@ -898,7 +1010,151 @@ ${formattedFactsForLLM}
   }
 });
 
+// ─── Wiki 变更日志（Sync History）────────────────────────────────────
+// GET /api/clients/:id/sync-history
+// 返回最近 N 条 sync 记录，按时间倒序排列
+app.get('/api/clients/:id/sync-history', (req, res) => {
+  const { id } = req.params;
+  const clients = readClients();
+  if (!clients.find(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
+
+  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  const history = readSyncHistory(id).slice(0, limit);
+  res.json(history);
+});
+
+// ─── 多模态图片上传 → OCR → 写入日志 ────────────────────────────────
+// POST /api/clients/:id/upload-image
+// body: { image_base64: "data:image/jpeg;base64,...", image_url: "https://...", document_type: "化验单" }
+// 调用多模态模型严格提取医疗信息，写入 type=ocr 的日志
+const MULTIMODAL_SYSTEM = `你是一个专业的医疗单据识别助手。
+你的任务是从医疗图片中精确提取结构化的临床信息。
+
+【严格约束 — 必须遵守，不得违反】
+1. 只提取图片中明确可见的信息，绝对禁止推测或补全。
+2. 如果某字段在图片中不存在或不清晰，必须返回 null，而非猜测值。
+3. 禁止使用 "AI确诊"、"AI诊断为"、"确诊"、"诊断为" 等诊断性表达。
+4. 禁止提取患者姓名、身份证号、电话号码等个人隐私信息。
+5. 所有数值必须附带单位（如 "130/85 mmHg"，不能只写 "130"）。
+6. 日期格式统一为 YYYY-MM-DD，无法识别时返回 null。
+7. 只输出合法的 JSON，不包含任何 Markdown 代码块或解释性文字。`;
+
+const MULTIMODAL_PROMPT = (docType) => `请识别这张医疗图片（类型：${docType || '未知'}），严格按照以下 JSON 格式输出，不要有任何字段缺失或格式变化：
+
+{
+  "document_type": "识别到的文件类型，如：化验单 | 出院小结 | 检查报告 | 处方单 | 诊断证明 | 其他",
+  "exam_date": "检查或就诊日期，格式 YYYY-MM-DD，无法识别返回 null",
+  "diagnoses": ["疾病名称1", "疾病名称2"],
+  "lab_results": [
+    { "item": "检测项目名称", "value": "数值+单位", "reference": "参考范围或null", "flag": "正常|偏高|偏低|null" }
+  ],
+  "vital_signs": [
+    { "item": "指标名称如血压/心率/体温", "value": "数值+单位", "flag": "正常|偏高|偏低|null" }
+  ],
+  "medications": [
+    { "name": "药品名称", "dose": "剂量", "frequency": "频次" }
+  ],
+  "clinical_summary": "用一句客观描述图片核心内容，不含诊断判断，最多100字。若图片不清晰则写「图片内容无法识别」",
+  "is_duplicate": false,
+  "cannot_recognize": false
+}
+
+注意：
+- lab_results 和 vital_signs 中，每一项必须有实际数值才能列入，不能列入"未见异常"等无数值的描述项。
+- diagnoses 只填写图片中明确写明的诊断，不要根据化验值推断疾病。
+- 如果图片根本无法识别（模糊、非医疗文件），将 cannot_recognize 设为 true，其余字段设为 null 或 []。`;
+
+app.post('/api/clients/:id/upload-image', async (req, res) => {
+  const { id } = req.params;
+  const clients = readClients();
+  const clientIndex = clients.findIndex(c => c.id === id);
+  if (clientIndex === -1) return res.status(404).json({ error: '客户不存在' });
+
+  const { image_base64, image_url, document_type } = req.body;
+  if (!image_base64 && !image_url) {
+    return res.status(400).json({ error: '必须提供 image_base64 或 image_url' });
+  }
+
+  try {
+    // 构建 messages（支持 base64 和 URL 两种方式）
+    const imageContent = image_base64
+      ? { type: 'image_url', image_url: { url: image_base64 } }  // data:image/jpeg;base64,...
+      : { type: 'image_url', image_url: { url: image_url } };
+
+    const response = await getOpenAI().chat.completions.create({
+      model: process.env.VISION_MODEL || process.env.SYNC_MODEL || 'gemini-3.6-flash',
+      messages: [
+        { role: 'system', content: MULTIMODAL_SYSTEM },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: MULTIMODAL_PROMPT(document_type) },
+            imageContent
+          ]
+        }
+      ],
+      temperature: 0.05,   // 极低温度，减少随机性
+      max_tokens: 1500,
+    });
+
+    const rawContent = response.choices[0]?.message?.content || '{}';
+    let ocrResult;
+    try {
+      ocrResult = robustParseJson(rawContent);
+    } catch (e) {
+      console.error('[upload-image] OCR 解析失败:', rawContent);
+      return res.status(500).json({ error: 'OCR 结果解析失败: ' + e.message });
+    }
+
+    // 如果图片无法识别
+    if (ocrResult.cannot_recognize) {
+      return res.status(422).json({ error: '图片无法识别（模糊或非医疗文件）', ocrResult });
+    }
+
+    // 将 OCR 结构化结果序列化为可读的日志内容
+    const logLines = [];
+    logLines.push(`【医疗单据识别】文件类型：${ocrResult.document_type || '未知'}`);
+    if (ocrResult.exam_date) logLines.push(`检查日期：${ocrResult.exam_date}`);
+    if (ocrResult.diagnoses?.length) logLines.push(`诊断记录：${ocrResult.diagnoses.join('、')}`);
+    if (ocrResult.vital_signs?.length) {
+      logLines.push('生理指标：');
+      ocrResult.vital_signs.forEach(v => logLines.push(`  - ${v.item}: ${v.value}${v.flag && v.flag !== '正常' ? `（${v.flag}）` : ''}`));
+    }
+    if (ocrResult.lab_results?.length) {
+      logLines.push('化验结果：');
+      ocrResult.lab_results.forEach(r => logLines.push(`  - ${r.item}: ${r.value}${r.reference ? `（参考：${r.reference}）` : ''}${r.flag && r.flag !== '正常' ? ` [${r.flag}]` : ''}`));
+    }
+    if (ocrResult.medications?.length) {
+      logLines.push('用药信息：');
+      ocrResult.medications.forEach(m => logLines.push(`  - ${m.name} ${m.dose} ${m.frequency}`));
+    }
+    if (ocrResult.clinical_summary) logLines.push(`临床摘要：${ocrResult.clinical_summary}`);
+
+    const logContent = logLines.join('\n');
+    const logTitle = `${ocrResult.document_type || '医疗单据'}（${ocrResult.exam_date || '日期未知'}）`;
+
+    // 写入日志
+    const logId = `log_${Date.now()}`;
+    const logs = readLogs(id);
+    logs.push({ id: logId, type: 'ocr', title: logTitle, content: logContent, timestamp: new Date().toISOString(), synced: false });
+    writeLogs(id, logs);
+
+    console.log(`[upload-image] ✓ 客户 ${id} OCR 日志写入成功 (${logId})`);
+    res.status(201).json({
+      message: '图片识别成功，已写入日志',
+      logId,
+      ocrResult,
+      logContent
+    });
+
+  } catch (err) {
+    console.error('[upload-image] 错误:', err);
+    res.status(500).json({ error: '图片识别失败: ' + err.message });
+  }
+});
+
 // 3. 通用划词 AI 解读接口
+
 app.post('/api/chat', async (req, res) => {
   const { action, text, context } = req.body;
   if (!text) return res.status(400).json({ error: '缺少待解析的文本' });
@@ -917,8 +1173,8 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const response = await openai.chat.completions.create({
-      model: process.env.ARK_MODEL || 'doubao-1.5-pro-32k-250115',
+    const response = await getOpenAI().chat.completions.create({
+      model: process.env.SYNC_MODEL || 'gemini-3.6-flash',
       messages: [
         { role: 'system', content: '你是一个贴心的健康管理助理，用简明扼要的中文进行回复。' },
         { role: 'user', content: prompt }
@@ -932,6 +1188,13 @@ app.post('/api/chat', async (req, res) => {
     res.status(500).json({ error: 'AI 解析失败: ' + err.message });
   }
 });
+// SPA fallback：所有非 /api/* 路由返回前端 index.html
+// Express 5 要求通配符必须命名，用 /{*path} 而非 *
+if (fs.existsSync(DIST_DIR)) {
+  app.get('/{*path}', (req, res) => {
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+}
 
 // 启动服务器
 app.listen(PORT, () => {

@@ -1,0 +1,1791 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki 界面重构方案 D - 侧边双翼人体评估图</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+  <style>
+    /* ──────────────────── 全局设计系统 ──────────────────── */
+    :root {
+      --bg-gradient: linear-gradient(135deg, #f3f6fc 0%, #f8fafd 100%);
+      --sidebar-bg: #ffffff;
+      --card-bg: #ffffff;
+      --border-color: #e2e8f0;
+      
+      --primary: #003da6;
+      --primary-hover: #002e7e;
+      --primary-glow: rgba(0, 61, 166, 0.06);
+      
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.05);
+      --success-border: rgba(16, 185, 129, 0.15);
+      
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.05);
+      --warning-border: rgba(245, 158, 11, 0.15);
+      
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.05);
+      --danger-border: rgba(239, 68, 68, 0.15);
+      
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-display: 'Outfit', var(--font-sans);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: #f8fafc;
+      background-image: var(--bg-gradient);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ─── 顶部演示导航条 ─── */
+    .demo-bar {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.15);
+      z-index: 100;
+      border-bottom: 2px solid #1e293b;
+    }
+
+    .demo-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .demo-title span {
+      background: #3b82f6;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .demo-nav {
+      display: flex;
+      gap: 12px;
+    }
+
+    .demo-link {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 16px;
+      border-radius: 20px;
+      transition: all 0.2s;
+      background: rgba(255,255,255,0.05);
+    }
+
+    .demo-link:hover {
+      color: #ffffff;
+      background: rgba(255,255,255,0.1);
+    }
+
+    .demo-link.active {
+      color: #ffffff;
+      background: #3b82f6;
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+    }
+
+    /* ─── 主布局容器 ─── */
+    .app-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      height: calc(100vh - 44px);
+    }
+
+    /* ─── 右侧工作区 ─── */
+    .workspace {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ─── Bento 临床监控看板 ─── */
+    .clinical-dashboard-header {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 24px;
+      display: grid;
+      grid-template-columns: 290px 1fr 350px;
+      gap: 20px;
+      align-items: center;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02);
+      z-index: 10;
+    }
+
+    /* Column 1: 患者基本信息卡片 */
+    .patient-profile-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 12px 14px;
+      height: 94px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.01);
+    }
+
+    .patient-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #3b82f6 0%, #003da6 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 700;
+      font-family: var(--font-display);
+      box-shadow: 0 4px 12px rgba(0, 61, 166, 0.18);
+    }
+
+    .patient-meta-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      overflow: hidden;
+    }
+
+    .patient-name-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .patient-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .patient-tags {
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .patient-phone {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-family: monospace;
+    }
+
+    .patient-allergy-bar {
+      font-size: 10.5px;
+      color: #dc2626;
+      background: #fef2f2;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-weight: 600;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      margin-top: 1px;
+    }
+
+    /* Column 2: 核心体征实时监控区 */
+    .vitals-monitor-panel {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      height: 94px;
+    }
+
+    .vital-widget {
+      background: #ffffff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .vital-widget:hover {
+      border-color: #cbd5e1;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+
+    .vital-widget.danger-alert {
+      border-color: #fca5a5;
+      background: linear-gradient(180deg, #ffffff 0%, #fff8f8 100%);
+    }
+
+    .vital-widget.warning-alert {
+      border-color: #fde047;
+      background: linear-gradient(180deg, #ffffff 0%, #fefdf3 100%);
+    }
+
+    .vital-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      z-index: 2;
+    }
+
+    .vital-value-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      z-index: 2;
+    }
+
+    .vital-value {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .vital-value-row.danger-alert .vital-value { color: #dc2626; }
+    .vital-value-row.warning-alert .vital-value { color: #b45309; }
+
+    .vital-unit {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-left: 2px;
+      font-weight: 500;
+    }
+
+    .vital-status-tag {
+      font-size: 9.5px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+
+    .vital-status-tag.danger { background: #fee2e2; color: #dc2626; }
+    .vital-status-tag.warning { background: #fef9c3; color: #b45309; }
+
+    /* 临床背景波形图/趋势线 */
+    .vital-sparkline {
+      position: absolute;
+      bottom: 2px;
+      left: 0;
+      width: 100%;
+      height: 24px;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0.45;
+    }
+
+    /* Column 3: AI工作站同步区 */
+    .ai-station-card {
+      background: #ffffff;
+      border: 1.5px solid var(--border-color);
+      border-radius: 12px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 94px;
+    }
+
+    .ai-station-stats {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .ai-progress-bar-container {
+      flex: 1;
+      margin-right: 12px;
+    }
+
+    .ai-progress-label {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-secondary);
+      font-weight: 600;
+      margin-bottom: 4px;
+      font-size: 10px;
+    }
+
+    .ai-progress-track {
+      height: 6px;
+      background: #f1f5f9;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .ai-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary) 0%, #3b82f6 100%);
+      border-radius: 3px;
+    }
+
+    .ai-gauge-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: var(--primary-glow);
+      border: 1px solid rgba(0, 61, 166, 0.15);
+      padding: 4px 8px;
+      border-radius: 8px;
+      min-width: 65px;
+      text-align: center;
+    }
+
+    .gauge-val {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1.2;
+    }
+
+    .gauge-lbl {
+      font-size: 9px;
+      color: var(--primary);
+      font-weight: 600;
+      margin-top: 1px;
+    }
+
+    .ai-action-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .sync-time-lbl {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .btn-sync-action {
+      background: var(--primary);
+      color: #ffffff;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 2px 8px rgba(0, 61, 166, 0.12);
+      transition: all 0.2s;
+    }
+
+    .btn-sync-action:hover {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 61, 166, 0.2);
+    }
+
+    /* 选项卡栏 */
+    .action-bar {
+      background: #ffffff;
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 24px;
+      display: flex;
+      justify-content: space-between;
+      height: 44px;
+      flex-shrink: 0;
+    }
+
+    .view-tabs {
+      display: flex;
+      gap: 20px;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      padding: 0 4px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    /* Wiki 主布局 (双栏分划：左侧正文+右侧常驻双翼人体图) */
+    .wiki-workspace {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+
+    /* Wiki 章节目录 (左) */
+    .wiki-nav {
+      width: 180px;
+      border-right: 1px solid var(--border-color);
+      background: #ffffff;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .nav-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      padding-left: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .wiki-nav-item {
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s;
+      border-left: 3px solid transparent;
+    }
+
+    .wiki-nav-item:hover {
+      background: #f1f5f9;
+      color: var(--text-primary);
+    }
+
+    .wiki-nav-item.active {
+      background: var(--primary-glow);
+      color: var(--primary);
+      font-weight: 600;
+      border-left-color: var(--primary);
+      border-radius: 0 8px 8px 0;
+    }
+
+    /* Wiki 主体内容包装器 */
+    .wiki-body-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #ffffff;
+      border-right: 1px solid var(--border-color);
+    }
+
+    .wiki-body-header {
+      padding: 12px 24px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .wiki-page-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .wiki-body-content {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+    }
+
+    .wiki-document-container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    /* Bento Grid 样式 */
+    .bento-dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+      width: 100%;
+    }
+
+    .bento-card {
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 120px;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0, 61, 166, 0.01);
+    }
+
+    .bento-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(0, 61, 166, 0.15) !important;
+      box-shadow: 0 8px 20px rgba(0, 61, 166, 0.05);
+    }
+
+    .bento-card.bento-red-flag.has-allergies {
+      background: #fff5f5 !important;
+      border-color: rgba(239, 68, 68, 0.2) !important;
+    }
+
+    .bento-card.bento-red-flag.has-allergies:hover {
+      background: #fff0f0 !important;
+      border-color: rgba(239, 68, 68, 0.35) !important;
+    }
+
+    .bento-card-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      width: 100%;
+    }
+
+    .bento-card-title-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .bento-card-icon {
+      font-size: 24px !important;
+      margin-bottom: 6px;
+      display: inline-block;
+    }
+
+    .bento-card-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .bento-card-value-large {
+      font-size: 28px;
+      font-weight: 800;
+      font-family: var(--font-display);
+    }
+
+    .bento-card-footer-text {
+      font-size: 11.5px;
+      margin-top: 10px;
+      padding-top: 6px;
+      line-height: 1.4;
+    }
+
+    .bento-card-progress-container {
+      margin-top: 10px;
+      width: 100%;
+    }
+
+    .bento-card-progress-label-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10.5px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .bento-card-progress-bar-bg {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.05);
+      height: 5px;
+      border-radius: 2.5px;
+      overflow: hidden;
+    }
+
+    .bento-card-progress-bar-fill {
+      background: var(--primary);
+      height: 100%;
+      border-radius: 2.5px;
+      transition: width 0.4s ease;
+    }
+
+    .bento-severity-content-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+    }
+
+    .bento-donut-container {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: inset 0 0 5px rgba(0,0,0,0.05);
+      flex-shrink: 0;
+    }
+
+    .bento-donut-center {
+      width: 66px;
+      height: 66px;
+      border-radius: 50%;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .bento-donut-number {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text-primary);
+    }
+
+    .bento-donut-label {
+      font-size: 8px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .bento-severity-list {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding-left: 10px;
+      flex: 1;
+    }
+
+    .bento-severity-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10.5px;
+    }
+
+    .bento-severity-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+    }
+
+    /* AI 导读与警示框 */
+    .ai-summary-card {
+      background: linear-gradient(135deg, rgba(241, 243, 255, 0.6) 0%, rgba(255, 255, 255, 0.9) 100%);
+      border: 1px solid rgba(0, 61, 166, 0.15);
+      border-radius: 14px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 16px rgba(0, 61, 166, 0.02);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.25s ease;
+    }
+
+    .ai-summary-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(0, 61, 166, 0.05);
+      border-color: rgba(0, 61, 166, 0.25);
+    }
+
+    .ai-summary-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: linear-gradient(to bottom, #003da6, #10b981);
+    }
+
+    .ai-summary-header {
+      display: flex;
+      align-items: center;
+      font-weight: 700;
+      color: #003da6;
+      gap: 6px;
+      margin-bottom: 8px;
+      font-size: 13.5px;
+    }
+
+    .ai-summary-sparkle {
+      animation: pulse-sparkle 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse-sparkle {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.9); }
+    }
+
+    .ai-summary-content {
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.625;
+    }
+
+    /* 临床红线/警告卡片 */
+    .alert-block {
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin: 18px 0;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.01);
+      position: relative;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .alert-block > strong {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+      font-size: 13.5px;
+    }
+
+    /* Wiki 文章排版样式补全 */
+    .wiki-article h3 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-top: 18px;
+      margin-bottom: 8px;
+    }
+
+    .wiki-article ul {
+      padding-left: 20px;
+      margin-bottom: 12px;
+      list-style-type: disc;
+    }
+
+    .wiki-article li {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+      line-height: 1.5;
+    }
+
+    .alert-block.alert-important {
+      background: #fff1f2;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      border-left: 5px solid #ef4444;
+    }
+
+    .alert-block.alert-important strong {
+      color: #9f1239;
+    }
+
+    .alert-block.alert-important::after {
+      content: '';
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 7px;
+      height: 7px;
+      background-color: #ef4444;
+      border-radius: 50%;
+      animation: pulse-red-dot 1.8s infinite;
+    }
+
+    @keyframes pulse-red-dot {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+
+    .alert-block.alert-warning {
+      background: #fdfbeb;
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      border-left: 5px solid #f59e0b;
+    }
+
+    .alert-block.alert-warning strong {
+      color: #92400e;
+    }
+
+    /* 双向溯源引角标 */
+    .ref-citation-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: #003da6;
+      background-color: #f1f3ff;
+      border: 1px solid #b4c5ff;
+      border-radius: 4px;
+      padding: 1px 5px;
+      margin-left: 4px;
+      vertical-align: middle;
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+    }
+
+    .ref-citation-badge:hover {
+      background-color: #003da6;
+      color: #ffffff;
+      border-color: #003da6;
+      transform: translateY(-1px);
+    }
+
+    /* ─── 右侧宽屏双翼人体评估图面板 ─── */
+    .wiki-sidebar-map-wide {
+      width: 580px; /* 宽屏设计，完美容纳 3 栏 */
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .map-header-bar {
+      padding: 12px 20px;
+      border-bottom: 1px solid #f1f5f9;
+      background: #f8fafc;
+      flex-shrink: 0;
+    }
+
+    .map-header-bar h3 {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .map-header-bar p {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 3px;
+    }
+
+    /* 3 栏人体受损评估图容器 */
+    .amap-layout-container {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 185px 170px 185px; /* 拓宽中间人体部分，卡片略收窄 */
+      gap: 12px;
+      padding: 16px 8px;
+      background: radial-gradient(circle at center, #ffffff 0%, #f1f5f9 100%);
+      position: relative;
+      overflow-y: auto;
+      justify-content: center;
+      align-items: center; /* 纵向卡片完全居中对齐 */
+      align-content: center; /* 纵向居中对齐 */
+      height: 100%;
+    }
+
+    /* 左右侧卡片列 */
+    .amap-cards-column {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      z-index: 10;
+      position: relative;
+    }
+
+    .amap-cards-column.left-side {
+      align-items: flex-end;
+    }
+
+    .amap-cards-column.right-side {
+      align-items: flex-start;
+    }
+
+    /* 中间人体 SVG 容器 (融入背景，去边框，缩放放大 30%) */
+    .amap-body-svg-wrapper {
+      width: 170px; /* 从 130px 放大 */
+      height: 460px; /* 从 360px 放大 */
+      position: relative;
+      background: transparent; /* 完全融入背景，去掉卡片背景 */
+      border: none; /* 去掉边框 */
+      box-shadow: none; /* 去掉投影 */
+      overflow: visible; /* 允许微小的气泡探出 */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      align-self: center;
+    }
+
+    .amap-body-svg-wrapper svg.body-silhouette {
+      width: 100%;
+      height: 100%;
+      fill: #f1f5f9;
+      stroke: rgba(99, 102, 241, 0.25);
+      stroke-width: 1.5;
+    }
+
+    /* 脏器热点叠加层 */
+    .hotspot {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      z-index: 15;
+    }
+
+    .hotspot-center {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      transition: all 0.2s;
+    }
+
+    .hotspot-ring {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      width: 18px;
+      height: 18px;
+      animation: pulse-ring 2s infinite ease-in-out;
+      pointer-events: none;
+      transition: all 0.2s;
+    }
+
+    /* 气泡标签（默认隐藏，防遮挡，悬停或激活时以 HUD 形式渐显） */
+    .hotspot-label {
+      position: absolute;
+      top: -24px;
+      left: 50%;
+      transform: translate(-50%, 4px); /* 默认微沉偏移 */
+      font-size: 9.5px;
+      white-space: nowrap;
+      pointer-events: none;
+      font-weight: 700;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      color: #ffffff;
+      padding: 3px 7px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+      opacity: 0; /* 默认完全隐藏 */
+      transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* 悬停热点或卡片时显示气泡，完全避免遮挡 */
+    .hotspot:hover .hotspot-label,
+    .hotspot.active-hover .hotspot-label {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    /* 严重度色彩配置 */
+    .sev-high .hotspot-center { background-color: #ef4444; box-shadow: 0 0 8px #ef4444; }
+    .sev-high .hotspot-ring { border: 2px solid #ef4444; animation-duration: 1.2s; }
+    
+    .sev-medium .hotspot-center { background-color: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+    .sev-medium .hotspot-ring { border: 2px solid #f59e0b; animation-duration: 1.8s; }
+
+    .sev-low .hotspot-center { background-color: #3b82f6; box-shadow: 0 0 8px #3b82f6; }
+    .sev-low .hotspot-ring { border: 2px solid #3b82f6; animation-duration: 2.5s; }
+
+    @keyframes pulse-ring {
+      0% { opacity: 0.3; transform: translate(-50%, -50%) scale(0.7); }
+      50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.3); }
+      100% { opacity: 0.3; transform: translate(-50%, -50%) scale(0.7); }
+    }
+
+    /* 左右侧器官卡片样式 */
+    .organ-card {
+      width: 100%;
+      background: linear-gradient(to bottom, #ffffff, #fbfdff);
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 10px 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.01), 0 4px 12px rgba(0, 0, 0, 0.01);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      border-left: 4px solid transparent;
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    .organ-card.sev-high { border-left-color: #ef4444; }
+    .organ-card.sev-medium { border-left-color: #f59e0b; }
+
+    .organ-card:hover, .organ-card.highlighted {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0, 61, 166, 0.06), 0 2px 6px rgba(0, 0, 0, 0.01);
+      border-color: #cbd5e1;
+      background: #ffffff;
+      z-index: 20;
+    }
+
+    .organ-card.sev-high:hover, .organ-card.sev-high.highlighted { box-shadow: 0 8px 20px rgba(239, 68, 68, 0.1), 0 2px 6px rgba(239, 68, 68, 0.02); }
+    .organ-card.sev-medium:hover, .organ-card.sev-medium.highlighted { box-shadow: 0 8px 20px rgba(245, 158, 11, 0.1), 0 2px 6px rgba(245, 158, 11, 0.02); }
+
+    .organ-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .organ-card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+
+    .sev-badge {
+      font-size: 8.5px;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 10px;
+      white-space: nowrap;
+    }
+
+    .sev-high-badge { background: #fef2f2; color: #dc2626; border: 1px solid rgba(239,68,68,0.15); }
+    .sev-medium-badge { background: #fffbeb; color: #d97706; border: 1px solid rgba(245,158,11,0.15); }
+
+    .obs-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      list-style: none;
+    }
+
+    .obs-item {
+      font-size: 10px;
+      color: #475569;
+      line-height: 1.45;
+      display: flex;
+      align-items: flex-start;
+      gap: 3px;
+    }
+
+    .obs-bullet {
+      color: #cbd5e1;
+      font-size: 9px;
+      margin-top: 1px;
+      flex-shrink: 0;
+    }
+
+    .obs-text {
+      flex: 1;
+    }
+
+    /* 背景画板 Canvas 覆盖 */
+    .amap-connector-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 5;
+      overflow: visible;
+    }
+
+    /* 连线高亮样式与流向心电式流动效果 */
+    @keyframes signal-flow {
+      to {
+        stroke-dashoffset: -20;
+      }
+    }
+
+    .connector-line-glow {
+      transition: opacity 0.25s ease;
+    }
+
+    .connector-line-main {
+      stroke-dasharray: 4 4;
+      animation: signal-flow 1.5s linear infinite;
+      transition: opacity 0.25s ease, stroke-width 0.25s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部演示切换条 -->
+  <div class="demo-bar">
+    <div class="demo-title">
+      <span>演示 Mockup</span> LLMWiki 页面布局重构方案选型
+    </div>
+    <div class="demo-nav">
+      <a href="demo_layout_a.html" class="demo-link">方案 A: 右侧常规侧栏</a>
+      <a href="demo_layout_b.html" class="demo-link">方案 B: 顶部横向看板</a>
+      <a href="demo_layout_c.html" class="demo-link">方案 C: 右侧标签切页</a>
+      <a href="demo_layout_d.html" class="demo-link active">方案 D: 侧边双翼看板 (推荐)</a>
+    </div>
+  </div>
+
+  <div class="app-container">
+    <div class="workspace">
+      
+      <!-- ─── Bento 临床监控看板 (数据已与病例对齐) ─── -->
+      <header class="clinical-dashboard-header">
+        
+        <!-- Col 1: 患者基本信息 (已对齐案例一) -->
+        <div class="patient-profile-card">
+          <div class="patient-avatar">老</div>
+          <div class="patient-meta-info">
+            <div class="patient-name-row">
+              <span class="patient-name">案例一</span>
+              <span class="patient-tags">男 · 73 岁</span>
+            </div>
+            <div class="patient-phone">📞 130-0000-0001</div>
+            <div class="patient-allergy-bar" title="无已知药物过敏，暂行术前禁食水">⚠️ 禁食水 · 脊柱骨折</div>
+          </div>
+        </div>
+
+        <!-- Col 2: 核心体征监测 (已与病例 89% 血氧同步，心电图) -->
+        <div class="vitals-monitor-panel">
+          
+          <div class="vital-widget danger-alert">
+            <div class="vital-label">
+              <span class="material-symbols-outlined" style="font-size:13px; color:#ef4444;">oxygen_saturation</span>
+              血氧饱和度
+            </div>
+            <div class="vital-value-row danger-alert">
+              <span class="vital-value">89<span class="vital-unit">%</span></span>
+              <span class="vital-status-tag danger">高危</span>
+            </div>
+            <div class="vital-sparkline">
+              <svg viewBox="0 0 100 24" width="100%" height="24">
+                <path d="M0,14 L15,14 L22,22 L30,2 L38,20 L46,14 L65,14 L72,21 L80,3 L88,18 L96,14 L100,14" fill="none" stroke="#ef4444" stroke-width="1.2" />
+              </svg>
+            </div>
+          </div>
+
+          <div class="vital-widget">
+            <div class="vital-label">
+              <span class="material-symbols-outlined" style="font-size:13px; color:#10b981;">bloodpressure</span>
+              患者血压
+            </div>
+            <div class="vital-value-row">
+              <span class="vital-value">136/86<span class="vital-unit">mmHg</span></span>
+              <span class="vital-status-tag" style="background:#d1fae5; color:#065f46;">正常</span>
+            </div>
+            <div class="vital-sparkline">
+              <svg viewBox="0 0 100 24" width="100%" height="24">
+                <path d="M0,12 L20,12 L25,10 L30,14 L35,12 L55,12 L60,10 L65,14 L70,12 L100,12" fill="none" stroke="#10b981" stroke-width="1.2" />
+              </svg>
+            </div>
+          </div>
+
+          <div class="vital-widget warning-alert">
+            <div class="vital-label">
+              <span class="material-symbols-outlined" style="font-size:13px; color:#f59e0b;">water_drop</span>
+              空腹血糖
+            </div>
+            <div class="vital-value-row warning-alert">
+              <span class="vital-value">9.2<span class="vital-unit">mmol/L</span></span>
+              <span class="vital-status-tag warning">异常</span>
+            </div>
+            <div class="vital-sparkline">
+              <svg viewBox="0 0 100 24" width="100%" height="24">
+                <path d="M0,18 L20,16 L40,8 L60,12 L80,10 L100,6" fill="none" stroke="#f59e0b" stroke-width="1.2" />
+              </svg>
+            </div>
+          </div>
+
+          <div class="vital-widget warning-alert">
+            <div class="vital-label">
+              <span class="material-symbols-outlined" style="font-size:13px; color:#f59e0b;">device_thermostat</span>
+              核心体温
+            </div>
+            <div class="vital-value-row warning-alert">
+              <span class="vital-value">38.5<span class="vital-unit">℃</span></span>
+              <span class="vital-status-tag warning">发热</span>
+            </div>
+            <div class="vital-sparkline">
+              <svg viewBox="0 0 100 24" width="100%" height="24">
+                <path d="M0,16 L20,14 L40,8 L60,6 L80,5 L100,5" fill="none" stroke="#f59e0b" stroke-width="1.2" />
+              </svg>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Col 3: AI工作站同步状态 -->
+        <div class="ai-station-card">
+          <div class="ai-station-stats">
+            <div class="ai-progress-bar-container">
+              <div class="ai-progress-label">
+                <span>日志融入率 (已同步)</span>
+                <span>3 / 3</span>
+              </div>
+              <div class="ai-progress-track">
+                <div class="ai-progress-fill" style="width: 100%;"></div>
+              </div>
+            </div>
+            <div class="ai-gauge-badge">
+              <span class="gauge-val">98%</span>
+              <span class="gauge-lbl">置信度</span>
+            </div>
+          </div>
+          <div class="ai-action-row">
+            <span class="sync-time-lbl">上次汇总: 05-28 11:12</span>
+            <button class="btn-sync-action">
+              <span class="material-symbols-outlined" style="font-size:13px;">sync</span>
+              同步 Wiki
+            </button>
+          </div>
+        </div>
+
+      </header>
+
+      <!-- 操作与切换条 -->
+      <div class="action-bar">
+        <div class="view-tabs">
+          <button class="tab-btn active">📖 客户专属 Wiki 百科</button>
+          <button class="tab-btn">💬 原始沟通日志 (3)</button>
+        </div>
+      </div>
+
+      <!-- Wiki 页面大容器 (左侧导航 + 中间正文 + 右侧常驻双翼人体图) -->
+      <div class="wiki-workspace">
+        
+        <!-- Wiki 页面目录 (最左侧) -->
+        <aside class="wiki-nav">
+          <div class="nav-title">Wiki 页面目录</div>
+          <button class="wiki-nav-item active">🏠 客户健康首页</button>
+          <button class="wiki-nav-item">🧬 既往史与诊疗轴</button>
+          <button class="wiki-nav-item">💊 用药与生活医嘱</button>
+          <button class="wiki-nav-item">📅 随访与沟通摘要</button>
+        </aside>
+
+        <!-- Wiki 核心渲染主体 (中间) -->
+        <div class="wiki-body-panel">
+          <div class="wiki-body-header">
+            <div class="wiki-page-title">🏠 客户健康首页 (index.md)</div>
+            <button style="padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border-color); background:#fff; font-size:11.5px; font-weight:600; cursor:pointer;">手动编辑此页</button>
+          </div>
+
+          <div class="wiki-body-content">
+            <div class="wiki-document-container">
+              
+              <!-- 1. 格式化经验导入：Bento Dashboard 统计网格 -->
+              <div class="bento-dashboard-grid">
+                <!-- Bento Card 1: Red Flag Alert -->
+                <div class="bento-card bento-red-flag has-allergies">
+                  <div class="bento-card-header-row">
+                    <div class="bento-card-title-group">
+                      <span class="material-symbols-outlined icon-fill bento-card-icon" style="color: #dc2626;">crisis_alert</span>
+                      <span class="bento-card-label" style="color: #93000a;">红旗警讯 / 禁食禁水</span>
+                    </div>
+                    <div class="bento-card-value-large" style="color: #dc2626;">1</div>
+                  </div>
+                  <div class="bento-card-footer-text" style="color: #93000a; border-top: 1px dashed rgba(147, 0, 10, 0.15)">
+                    警告: 无已知药物过敏，暂行术前禁食水
+                  </div>
+                </div>
+
+                <!-- Bento Card 2: Severity Distribution -->
+                <div class="bento-card bento-severity-distribution">
+                  <div class="bento-severity-content-row">
+                    <div class="bento-donut-container" style="background: conic-gradient(#ef4444 0% 14.28%, #f59e0b 14.28% 42.85%, #003da6 42.85% 100%)">
+                      <div class="bento-donut-center">
+                        <span class="bento-donut-number">7</span>
+                        <span class="bento-donut-label">关注项</span>
+                      </div>
+                    </div>
+                    <div class="bento-severity-list">
+                      <span class="bento-card-label" style="color: var(--text-muted); margin-bottom: 4px;">风险严重度分布</span>
+                      <div class="bento-severity-item">
+                        <div class="bento-severity-dot" style="background: #ef4444"></div>
+                        <span style="color: var(--text-primary)">高危关注 (1)</span>
+                      </div>
+                      <div class="bento-severity-item">
+                        <div class="bento-severity-dot" style="background: #f59e0b"></div>
+                        <span style="color: var(--text-primary)">中危关注 (2)</span>
+                      </div>
+                      <div class="bento-severity-item">
+                        <div class="bento-severity-dot" style="background: #003da6"></div>
+                        <span style="color: var(--text-primary)">常规指标 (4)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Bento Card 3: AI Sync Tracker -->
+                <div class="bento-card bento-ai-sync">
+                  <div class="bento-card-header-row">
+                    <div class="bento-card-title-group">
+                      <span class="material-symbols-outlined bento-card-icon" style="color: var(--primary)">hub</span>
+                      <span class="bento-card-label" style="color: var(--text-muted)">AI 置信度评估</span>
+                    </div>
+                    <div style="display: flex; align-items: baseline; gap: 2px;">
+                      <span class="bento-card-value-large" style="color: var(--primary)">98</span>
+                      <span style="font-size: 11px; color: var(--primary); font-weight: 600;">%</span>
+                    </div>
+                  </div>
+                  <div class="bento-card-progress-container">
+                    <div class="bento-card-progress-label-row">
+                      <span>日志融入率 (已同步)</span>
+                      <span>3 / 3</span>
+                    </div>
+                    <div class="bento-card-progress-bar-bg">
+                      <div class="bento-card-progress-bar-fill" style="width: 100%"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2. 格式化经验导入：AI 健康导读速览卡片 -->
+              <div class="ai-summary-card">
+                <div class="ai-summary-header">
+                  <span class="ai-summary-sparkle">🪄</span>
+                  <span>AI 健康导读速览 (老年慢阻肺合并脊柱骨折与糖尿病照护)</span>
+                </div>
+                <div class="ai-summary-content">
+                  患者为73岁老年男性，患慢阻肺十余年伴哮喘，因跌倒致L2腰椎压缩骨折入院，合并糖尿病。目前卧床吸氧，执行一级护理。本案例面临严重的内外科矛盾：慢阻肺咳嗽腹压动荡会加剧腰椎骨折移位，而骨折绝对卧床又会加重呼吸困难及压疮，需极其细致的协同管理。
+                </div>
+              </div>
+
+              <!-- 3. 格式化经验导入：Structured Alert Blocks 与 Markdown 正文 -->
+              <article class="wiki-article">
+                <div class="alert-block alert-important">
+                  <strong>🚨 医疗红线与过敏史 (红线警示)</strong>
+                  <p style="margin-bottom: 0;">
+                    • <strong>绝对卧床</strong>：严禁患者自行翻身，每次翻身必须由 3 名医护人员协同实施整体“轴线翻身”，防范骨折块移位压迫脊髓 <span class="ref-citation-badge" data-log-id="log_c1_2">🔗 溯源</span>！<br/>
+                    • <strong>严重缺氧</strong>：血氧饱和度仅为 89% <span class="ref-citation-badge" data-log-id="log_c1_3">🔗 溯源</span>。患者一旦咳嗽可能导致剧烈腰痛与骨折段负荷，但慢阻肺又必须排痰。如发现指甲嘴唇青紫（紫绀）、点头样呼吸或神志模糊，须立即加大给氧并呼叫急救。
+                  </p>
+                </div>
+
+                <div class="alert-block alert-warning">
+                  <strong>⚠️ 指标异常与警示 (围手术期管理)</strong>
+                  <p style="margin-bottom: 0;">
+                    • <strong>吸入剂限制</strong>：慢阻肺急性加重使常用吸入药效下降，严禁家属自行加量吸入，以防诱发心律失常 <span class="ref-citation-badge" data-log-id="log_c1_1">🔗 溯源</span>。<br/>
+                    • <strong>围手术期控糖</strong>：既往糖尿病史数年，在术前禁食水状态下极易引发低血糖，需密切进行床旁血糖追踪 <span class="ref-citation-badge" data-log-id="log_c1_2">🔗 溯源</span>。
+                  </p>
+                </div>
+
+                <h3>1. 客户基本画像</h3>
+                <ul>
+                  <li><strong>基本信息</strong>：男，73岁，脊柱一组 18床 <span class="ref-citation-badge" data-log-id="log_c1_3">🔗 溯源</span>。</li>
+                  <li><strong>主要诊断</strong>：慢阻肺急性加重 <span class="ref-citation-badge" data-log-id="log_c1_1">🔗 溯源</span> ｜ L2腰椎压缩性骨折 <span class="ref-citation-badge" data-log-id="log_c1_2">🔗 溯源</span>。</li>
+                  <li><strong>合并疾病</strong>：糖尿病史 <span class="ref-citation-badge" data-log-id="log_c1_2">🔗 溯源</span>。</li>
+                </ul>
+
+                <h3>2. 快捷导航</h3>
+                <ul>
+                  <li><a href="#" style="color: var(--primary); text-decoration: underline; font-weight: 600;">既往史与诊疗时间轴</a></li>
+                  <li><a href="#" style="color: var(--primary); text-decoration: underline; font-weight: 600;">用药方案与生活医嘱</a></li>
+                  <li><a href="#" style="color: var(--primary); text-decoration: underline; font-weight: 600;">随访互动摘要</a></li>
+                </ul>
+              </article>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- ─── 核心：右侧双翼人体图面板 (卡片排身体两侧，人体高度集成放大，气泡默认隐藏防遮挡) ─── -->
+        <aside class="wiki-sidebar-map-wide">
+          <div class="map-header-bar">
+            <h3>🧍 脏器受损评估 (4 处异常)</h3>
+            <p>基于当前 Wiki 内容实时扫描，并在身体两侧左右分栏展示系统卡片</p>
+          </div>
+
+          <div class="amap-layout-container" id="amapContainer">
+            
+            <!-- 连接引线 Canvas 画板 -->
+            <svg class="amap-connector-canvas" id="connectorCanvas"></svg>
+
+            <!-- 1. 左翼卡片列 -->
+            <div class="amap-cards-column left-side">
+              
+              <div class="organ-card sev-high" data-id="lungs" data-side="left">
+                <div class="organ-card-header">
+                  <span class="organ-card-title">🫁 肺部与呼吸系统</span>
+                  <span class="sev-badge sev-high-badge">🔴 严重受损</span>
+                </div>
+                <ul class="obs-list">
+                  <li class="obs-item">
+                    <span class="obs-bullet">▪</span>
+                    <span class="obs-text">血氧低至 89%，伴咳嗽与呼吸急促</span>
+                  </li>
+                  <li class="obs-item">
+                    <span class="obs-bullet">▪</span>
+                    <span class="obs-text">术后坠积性肺炎早期，正给予吸氧</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div class="organ-card sev-high" data-id="spine" data-side="left">
+                <div class="organ-card-header">
+                  <span class="organ-card-title">🦴 脊柱与骨骼系统</span>
+                  <span class="sev-badge sev-high-badge">🔴 严重受损</span>
+                </div>
+                <ul class="obs-list">
+                  <li class="obs-item">
+                    <span class="obs-bullet">▪</span>
+                    <span class="obs-text">L2腰椎压缩骨折入院，严禁自行翻身</span>
+                  </li>
+                  <li class="obs-item">
+                    <span class="obs-bullet">▪</span>
+                    <span class="obs-text">要求3人整体轴线翻身，防骨折移位</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div class="organ-card sev-high" data-id="allergy" data-side="left">
+                <div class="organ-card-header">
+                  <span class="organ-card-title">🌟 全身过敏与免疫</span>
+                  <span class="sev-badge sev-high-badge">🔴 过敏警戒</span>
+                </div>
+                <ul class="obs-list">
+                  <li class="obs-item">
+                    <span class="obs-bullet">▪</span>
+                    <span class="obs-text">无已知药物过敏，暂行术前禁食水</span>
+                  </li>
+                </ul>
+              </div>
+
+            </div>
+
+            <!-- 2. 中间人体 SVG 图 (无框，放大比例) -->
+            <div class="amap-body-svg-wrapper" id="svgBodyWrapper">
+              
+              <!-- 缺省 SVG 轮廓 -->
+              <svg class="body-silhouette" viewBox="0 0 394 1085" id="fallbackSilhouette">
+                <path d="M197,80 C180,80 170,95 170,110 C170,125 180,140 197,140 C214,140 224,125 224,110 C224,95 214,80 197,80 Z 
+                         M170,145 L224,145 L235,220 L240,380 L235,580 L220,780 L215,980 L197,980 L185,780 L170,580 L160,380 L165,220 Z" />
+              </svg>
+
+              <!-- 脏器热点叠加 -->
+              <!-- 肺部 (lungs) -->
+              <div class="hotspot sev-high" style="left: 43%; top: 25%;" data-id="lungs" data-pct-x="43" data-pct-y="25">
+                <div class="hotspot-center"></div>
+                <div class="hotspot-ring"></div>
+                <div class="hotspot-label">🫁 肺部</div>
+              </div>
+              
+              <!-- 脊柱 (spine) -->
+              <div class="hotspot sev-high" style="left: 50%; top: 35%;" data-id="spine" data-pct-x="50" data-pct-y="35">
+                <div class="hotspot-center"></div>
+                <div class="hotspot-ring"></div>
+                <div class="hotspot-label">🦴 脊柱</div>
+              </div>
+
+              <!-- 全身过敏 (allergy) -->
+              <div class="hotspot sev-high" style="left: 30%; top: 20%;" data-id="allergy" data-pct-x="30" data-pct-y="20">
+                <div class="hotspot-center"></div>
+                <div class="hotspot-ring"></div>
+                <div class="hotspot-label">🌟 过敏</div>
+              </div>
+
+              <!-- 胰腺 (pancreas) -->
+              <div class="hotspot sev-medium" style="left: 50%; top: 39%;" data-id="pancreas" data-pct-x="50" data-pct-y="39">
+                <div class="hotspot-center"></div>
+                <div class="hotspot-ring"></div>
+                <div class="hotspot-label">🩸 胰腺</div>
+              </div>
+
+            </div>
+
+            <!-- 3. 右翼卡片列 -->
+            <div class="amap-cards-column right-side">
+              
+              <div class="organ-card sev-medium" data-id="pancreas" data-side="right">
+                <div class="organ-card-header">
+                  <span class="organ-card-title">🩸 胰腺与血糖代谢</span>
+                  <span class="sev-badge sev-medium-badge">🟡 中度异常</span>
+                </div>
+                <ul class="obs-list">
+                  <li class="obs-item">
+                    <span class="obs-bullet">▪</span>
+                    <span class="obs-text">既往糖尿病史数年，术前密切血糖追踪</span>
+                  </li>
+                  <li class="obs-item">
+                    <span class="obs-bullet">▪</span>
+                    <span class="obs-text">防低血糖，根据床旁测糖值皮下泵胰岛素</span>
+                  </li>
+                </ul>
+              </div>
+
+            </div>
+
+          </div>
+        </aside>
+
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // 异步加载 Wikipedia 的 organs.svg 文件，裁剪 viewBox，替换默认 silhouette
+    fetch('/organs.svg')
+      .then(res => {
+        if (!res.ok) throw new Error('Not found');
+        return res.text();
+      })
+      .then(text => {
+        let cleanSvg = text.replace(/<\?xml[^>]*\?>/i, '').replace(/<!DOCTYPE[^>]*>/i, '');
+        // 重写 viewBox 为 125 140 210 945 以聚焦躯干
+        cleanSvg = cleanSvg.replace(/<svg([^>]*)(?:viewBox="[^"]*")?([^>]*)>/i, (match, before, after) => {
+          return `<svg ${before} viewBox="125 140 210 945" style="width:100%; height:100%; display:block;" ${after}>`;
+        });
+        
+        // 渲染进容器，保留热点节点
+        const wrapper = document.getElementById('svgBodyWrapper');
+        const hotspotsHtml = Array.from(wrapper.querySelectorAll('.hotspot')).map(el => el.outerHTML).join('');
+        wrapper.innerHTML = cleanSvg + hotspotsHtml;
+        
+        // 重新绑定热点事件并重画线
+        setTimeout(() => {
+          bindInteractions();
+          redrawConnectors();
+        }, 100);
+      })
+      .catch(err => {
+        console.warn('Vite 服务器未就绪或 file:// 跨域，正在使用高精轮廓兜底。');
+        bindInteractions();
+        setTimeout(redrawConnectors, 200);
+      });
+
+    // 动态重连折线
+    function redrawConnectors() {
+      const container = document.getElementById('amapContainer');
+      const svgCanvas = document.getElementById('connectorCanvas');
+      const bodyWrapper = document.getElementById('svgBodyWrapper');
+      
+      if (!container || !svgCanvas || !bodyWrapper) return;
+      
+      // 动态将 Canvas 尺寸延伸至容器 scroll 范围，彻底防止底部裁剪
+      svgCanvas.setAttribute('width', container.scrollWidth);
+      svgCanvas.setAttribute('height', container.scrollHeight);
+      
+      const containerRect = container.getBoundingClientRect();
+      const bodyRect = bodyWrapper.getBoundingClientRect();
+      
+      // 清空画板
+      svgCanvas.innerHTML = '';
+      
+      const hotspots = document.querySelectorAll('.hotspot');
+      hotspots.forEach(hotspot => {
+        const id = hotspot.getAttribute('data-id');
+        const card = document.querySelector(`.organ-card[data-id="${id}"]`);
+        if (!card) return;
+        
+        const cardRect = card.getBoundingClientRect();
+        const side = card.getAttribute('data-side'); // 'left' or 'right'
+        
+        // 计算热点百分比坐标对应的绝对位置（加上容器本身的 scroll 偏移量以锁死定位）
+        const pctX = parseFloat(hotspot.getAttribute('data-pct-x'));
+        const pctY = parseFloat(hotspot.getAttribute('data-pct-y'));
+        
+        const hotX = (bodyRect.left - containerRect.left + container.scrollLeft) + (pctX / 100) * bodyRect.width;
+        const hotY = (bodyRect.top - containerRect.top + container.scrollTop) + (pctY / 100) * bodyRect.height;
+        
+        // 计算卡片连接点位置 (卡片的侧边边缘中点)
+        let x2, y2;
+        if (side === 'left') {
+          x2 = cardRect.right - containerRect.left + container.scrollLeft;
+          y2 = cardRect.top - containerRect.top + container.scrollTop + cardRect.height / 2;
+        } else {
+          x2 = cardRect.left - containerRect.left + container.scrollLeft;
+          y2 = cardRect.top - containerRect.top + container.scrollTop + cardRect.height / 2;
+        }
+        
+        // 贝塞尔曲线的控制点偏移量
+        const dx = Math.abs(x2 - hotX) * 0.45;
+        const cx1 = (side === 'left') ? (hotX - dx) : (hotX + dx);
+        const cx2 = (side === 'left') ? (x2 + dx) : (x2 - dx);
+        
+        // 判断严重程度颜色
+        const isHigh = card.classList.contains('sev-high');
+        const color = isHigh ? '#ef4444' : '#f59e0b';
+        
+        // 组装连线
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('id', `conn-group-${id}`);
+        g.setAttribute('class', `connector-group`);
+        
+        // 1. 发光外描边
+        const pathGlow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        pathGlow.setAttribute('d', `M ${hotX} ${hotY} C ${cx1} ${hotY}, ${cx2} ${y2}, ${x2} ${y2}`);
+        pathGlow.setAttribute('fill', 'none');
+        pathGlow.setAttribute('stroke', color);
+        pathGlow.setAttribute('stroke-width', '5');
+        pathGlow.setAttribute('opacity', '0.04');
+        pathGlow.setAttribute('stroke-linecap', 'round');
+        pathGlow.setAttribute('class', 'connector-line-glow');
+        
+        // 2. 虚线主路径 (心电信号流动效果)
+        const pathMain = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        pathMain.setAttribute('d', `M ${hotX} ${hotY} C ${cx1} ${hotY}, ${cx2} ${y2}, ${x2} ${y2}`);
+        pathMain.setAttribute('fill', 'none');
+        pathMain.setAttribute('stroke', color);
+        pathMain.setAttribute('stroke-width', '1.2');
+        pathMain.setAttribute('stroke-dasharray', '4 4');
+        pathMain.setAttribute('opacity', '0.5');
+        pathMain.setAttribute('stroke-linecap', 'round');
+        pathMain.setAttribute('class', 'connector-line-main');
+        
+        // 3. 热点固定圆点
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', hotX);
+        circle.setAttribute('cy', hotY);
+        circle.setAttribute('r', '2.5');
+        circle.setAttribute('fill', color);
+        
+        g.appendChild(pathGlow);
+        g.appendChild(pathMain);
+        g.appendChild(circle);
+        
+        svgCanvas.appendChild(g);
+      });
+    }
+
+    // 绑定交互双向联动
+    function bindInteractions() {
+      const hotspots = document.querySelectorAll('.hotspot');
+      const cards = document.querySelectorAll('.organ-card');
+
+      hotspots.forEach(hotspot => {
+        const id = hotspot.getAttribute('data-id');
+        
+        hotspot.addEventListener('mouseenter', () => {
+          const card = document.querySelector(`.organ-card[data-id="${id}"]`);
+          if (card) {
+            card.classList.add('highlighted');
+          }
+          // 悬浮热点时为对应热点添加 active-hover 类以显现 HUD 标签
+          hotspot.classList.add('active-hover');
+          // 高亮并加速流动连线
+          const connGroup = document.getElementById(`conn-group-${id}`);
+          if (connGroup) {
+            connGroup.querySelector('.connector-line-glow').setAttribute('opacity', '0.22');
+            const mainLine = connGroup.querySelector('.connector-line-main');
+            mainLine.setAttribute('stroke-width', '2.2');
+            mainLine.setAttribute('opacity', '1');
+            mainLine.style.animation = 'signal-flow 0.6s linear infinite';
+          }
+        });
+
+        hotspot.addEventListener('mouseleave', () => {
+          const card = document.querySelector(`.organ-card[data-id="${id}"]`);
+          if (card) card.classList.remove('highlighted');
+          // 还原热点类
+          hotspot.classList.remove('active-hover');
+          // 还原连线
+          const connGroup = document.getElementById(`conn-group-${id}`);
+          if (connGroup) {
+            connGroup.querySelector('.connector-line-glow').setAttribute('opacity', '0.04');
+            const mainLine = connGroup.querySelector('.connector-line-main');
+            mainLine.setAttribute('stroke-width', '1.2');
+            mainLine.setAttribute('opacity', '0.5');
+            mainLine.style.animation = 'signal-flow 1.5s linear infinite';
+          }
+        });
+      });
+
+      cards.forEach(card => {
+        const id = card.getAttribute('data-id');
+        
+        card.addEventListener('mouseenter', () => {
+          const hotspot = document.querySelector(`.hotspot[data-id="${id}"]`);
+          if (hotspot) {
+            hotspot.querySelector('.hotspot-center').style.transform = 'scale(1.5)';
+            hotspot.querySelector('.hotspot-ring').style.transform = 'scale(1.5)';
+            // 悬浮卡片时，也让对应的人体热点显示 HUD 气泡
+            hotspot.classList.add('active-hover');
+          }
+          // 高亮并加速流动连线
+          const connGroup = document.getElementById(`conn-group-${id}`);
+          if (connGroup) {
+            connGroup.querySelector('.connector-line-glow').setAttribute('opacity', '0.22');
+            const mainLine = connGroup.querySelector('.connector-line-main');
+            mainLine.setAttribute('stroke-width', '2.2');
+            mainLine.setAttribute('opacity', '1');
+            mainLine.style.animation = 'signal-flow 0.6s linear infinite';
+          }
+        });
+
+        card.addEventListener('mouseleave', () => {
+          const hotspot = document.querySelector(`.hotspot[data-id="${id}"]`);
+          if (hotspot) {
+            hotspot.querySelector('.hotspot-center').style.transform = '';
+            hotspot.querySelector('.hotspot-ring').style.transform = '';
+            // 还原热点类
+            hotspot.classList.remove('active-hover');
+          }
+          // 还原连线
+          const connGroup = document.getElementById(`conn-group-${id}`);
+          if (connGroup) {
+            connGroup.querySelector('.connector-line-glow').setAttribute('opacity', '0.04');
+            const mainLine = connGroup.querySelector('.connector-line-main');
+            mainLine.setAttribute('stroke-width', '1.2');
+            mainLine.setAttribute('opacity', '0.5');
+            mainLine.style.animation = 'signal-flow 1.5s linear infinite';
+          }
+        });
+      });
+    }
+
+    // 监听各类重绘事件
+    window.addEventListener('resize', redrawConnectors);
+    document.getElementById('amapContainer').addEventListener('scroll', redrawConnectors);
+    
+    // 定时触发一次确保各元素定位已渲染完毕
+    setTimeout(redrawConnectors, 300);
+  </script>
+</body>
+</html>

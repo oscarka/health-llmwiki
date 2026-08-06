@@ -2,23 +2,11 @@
 .git
 .gitignore
 node_modules/
-dist/
 .env
 .env.*
 *.log
 .DS_Store
-LLM_Wiki.app/
-*.dmg
-crm_backup.zip
-llm-wiki-demo/
-llm_wiki_official/
-projects/
-scratch/
+_archive/
 tests/
-docs/
-src/
-public/
-vite.config.js
-eslint.config.js
-index.html
-# package-lock.json is needed for npm ci in Dockerfile
+# 以下是前端构建需要的文件，不能 ignore
+# src/ vite.config.js index.html dist/ 都需要传给 Docker build

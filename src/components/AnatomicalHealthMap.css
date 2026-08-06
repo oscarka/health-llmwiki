@@ -1,0 +1,259 @@
+/* AnatomicalHealthMap.css - 高保真人体受损评估图 (方案 D 专用) */
+
+:root {
+  --amap-col-side: 185px;
+  --amap-col-svg: 170px;
+  --amap-svg-w: 170px;
+  --amap-svg-h: 460px;
+  --amap-gap: 12px;
+}
+
+/* ─── 3 栏人体受损评估图容器 ─── */
+.amap-layout-container {
+  flex: 1;
+  display: grid;
+  grid-template-columns: var(--amap-col-side) var(--amap-col-svg) var(--amap-col-side);
+  gap: var(--amap-gap);
+  padding: 16px 8px;
+  background: radial-gradient(circle at center, #ffffff 0%, #f1f5f9 100%);
+  position: relative;
+  overflow-y: auto;
+  justify-content: center;
+  align-items: center; /* 纵向卡片完全居中对齐 */
+  align-content: center; /* 纵向居中对齐 */
+  height: 100%;
+}
+
+/* 左右侧卡片列 */
+.amap-cards-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 10;
+  position: relative;
+}
+
+.amap-cards-column.left-side {
+  align-items: flex-end;
+}
+
+.amap-cards-column.right-side {
+  align-items: flex-start;
+}
+
+.amap-empty-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  border: 1px dashed rgba(59, 130, 246, 0.2);
+  border-radius: 10px;
+  color: rgba(59, 130, 246, 0.5);
+  font-size: 11px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.3);
+  text-align: center;
+  padding: 8px;
+}
+
+/* 中间人体 SVG 容器 (融入背景，去边框，缩放放大 30%) */
+.amap-body-svg-wrapper {
+  width: var(--amap-svg-w);
+  height: var(--amap-svg-h);
+  position: relative;
+  background: transparent; /* 完全融入背景，去掉卡片背景 */
+  border: none; /* 去掉边框 */
+  box-shadow: none; /* 去掉投影 */
+  overflow: visible; /* 允许微小的气泡探出 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  align-self: center;
+}
+
+.amap-body-svg-wrapper svg.body-silhouette {
+  width: 100%;
+  height: 100%;
+  fill: #f1f5f9;
+  stroke: rgba(99, 102, 241, 0.25);
+  stroke-width: 1.5;
+}
+
+/* 脏器热点叠加层 */
+.hotspot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  z-index: 15;
+}
+
+.hotspot-center {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.hotspot-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  animation: pulse-ring 2s infinite ease-in-out;
+  pointer-events: none;
+  transition: all 0.2s;
+}
+
+/* 气泡标签（默认隐藏，防遮挡，悬停或激活时以 HUD 形式渐显） */
+.hotspot-label {
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  transform: translate(-50%, 4px); /* 默认微沉偏移 */
+  font-size: 9.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  font-weight: 700;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #ffffff;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+  opacity: 0; /* 默认完全隐藏 */
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 悬停热点或卡片时显示气泡，完全避免遮挡 */
+.hotspot:hover .hotspot-label,
+.hotspot.active-hover .hotspot-label {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* 严重度色彩配置 */
+.sev-high .hotspot-center { background-color: #ef4444; box-shadow: 0 0 8px #ef4444; }
+.sev-high .hotspot-ring { border: 2px solid #ef4444; animation-duration: 1.2s; }
+
+.sev-medium .hotspot-center { background-color: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+.sev-medium .hotspot-ring { border: 2px solid #f59e0b; animation-duration: 1.8s; }
+
+.sev-low .hotspot-center { background-color: #3b82f6; box-shadow: 0 0 8px #3b82f6; }
+.sev-low .hotspot-ring { border: 2px solid #3b82f6; animation-duration: 2.5s; }
+
+@keyframes pulse-ring {
+  0% { opacity: 0.3; transform: translate(-50%, -50%) scale(0.7); }
+  50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.3); }
+  100% { opacity: 0.3; transform: translate(-50%, -50%) scale(0.7); }
+}
+
+/* 左右侧器官卡片样式 */
+.organ-card {
+  width: 100%;
+  background: linear-gradient(to bottom, #ffffff, #fbfdff);
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.01), 0 4px 12px rgba(0, 0, 0, 0.01);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  border-left: 4px solid transparent;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.organ-card.sev-high { border-left-color: #ef4444; }
+.organ-card.sev-medium { border-left-color: #f59e0b; }
+.organ-card.sev-low { border-left-color: #3b82f6; }
+
+.organ-card:hover, .organ-card.highlighted {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 61, 166, 0.06), 0 2px 6px rgba(0, 0, 0, 0.01);
+  border-color: #cbd5e1;
+  background: #ffffff;
+  z-index: 20;
+}
+
+.organ-card.sev-high:hover, .organ-card.sev-high.highlighted { box-shadow: 0 8px 20px rgba(239, 68, 68, 0.1), 0 2px 6px rgba(239, 68, 68, 0.02); }
+.organ-card.sev-medium:hover, .organ-card.sev-medium.highlighted { box-shadow: 0 8px 20px rgba(245, 158, 11, 0.1), 0 2px 6px rgba(245, 158, 11, 0.02); }
+.organ-card.sev-low:hover, .organ-card.sev-low.highlighted { box-shadow: 0 8px 20px rgba(59, 130, 246, 0.1), 0 2px 6px rgba(59, 130, 246, 0.02); }
+
+.organ-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.organ-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.sev-badge {
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.sev-high-badge { background: #fef2f2; color: #dc2626; border: 1px solid rgba(239,68,68,0.15); }
+.sev-medium-badge { background: #fffbeb; color: #d97706; border: 1px solid rgba(245,158,11,0.15); }
+.sev-low-badge { background: #eff6ff; color: #1d4ed8; border: 1px solid rgba(59,130,246,0.15); }
+
+.obs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  padding-left: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.obs-item {
+  font-size: 10px;
+  color: #475569;
+  line-height: 1.45;
+  display: flex;
+  align-items: flex-start;
+  gap: 3px;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+
+.obs-bullet {
+  color: #cbd5e1;
+  font-size: 9px;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.obs-text {
+  flex: 1;
+}
+
+/* 背景画板 Canvas 覆盖 */
+.amap-connector-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 5;
+  overflow: visible;
+}
