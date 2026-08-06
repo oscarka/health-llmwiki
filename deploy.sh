@@ -55,7 +55,10 @@ gcloud run deploy "${SERVICE}" \
   --region "${REGION}" \
   --project "${PROJECT}" \
   --allow-unauthenticated \
+  --min-instances=1 \
+  --max-instances=1 \
   --set-env-vars="NODE_ENV=production,ARK_API_KEY=${ARK_API_KEY:-},ARK_MODEL=${ARK_MODEL:-doubao-seed-1-6-flash-250828},ARK_BASE_URL=${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3},GEMINI_API_KEY=${GEMINI_API_KEY:-},SYNC_MODEL=${SYNC_MODEL:-gemini-3.6-flash}" \
+  --set-secrets="DATABASE_URL=skill-platform-db-url:latest" \
   --quiet
 
 echo ""
