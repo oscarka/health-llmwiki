@@ -24,13 +24,13 @@ RUN npm ci --omit=dev
 # 复制后端所需文件
 COPY server.cjs ./
 COPY scripts/ ./scripts/
-COPY data/ ./data/
 
 # 从 build stage 复制前端产物
 COPY --from=frontend-builder /app/dist ./dist
 
 # Cloud Run 用 PORT 环境变量
 ENV PORT=8080
+# DATABASE_URL 由 Cloud Run --set-secrets 注入
 EXPOSE 8080
 
 CMD ["node", "server.cjs"]

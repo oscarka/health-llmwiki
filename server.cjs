@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 const { OpenAI } = require('openai');
+const { Pool } = require('pg');
 
 dotenv.config();
 
@@ -11,187 +12,175 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // ──────────────────── 前端静态文件 ────────────────────
-// Vite build 产物在 dist/，API 路由优先（/api/*），其余交给前端路由
 const DIST_DIR = path.join(__dirname, 'dist');
 if (fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
 }
 
-// ──────────────────── 数据存储路径配置 ────────────────────
-const DATA_DIR = path.join(__dirname, 'data');
-const CLIENTS_FILE = path.join(DATA_DIR, 'clients.json');
-const WIKI_DIR = path.join(DATA_DIR, 'wiki');
-const LOGS_DIR = path.join(DATA_DIR, 'logs');
-const SYNC_HISTORY_DIR = path.join(DATA_DIR, 'sync_history');
+// ──────────────────── Supabase / PostgreSQL 连接 ────────────────────
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  'postgresql://postgres:lnZbMyimxpMYgUp5@db.feaeonavsqzewadgoqeh.supabase.co:5432/postgres';
 
-// 确保目录存在
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
-if (!fs.existsSync(WIKI_DIR)) fs.mkdirSync(WIKI_DIR);
-if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR);
-if (!fs.existsSync(SYNC_HISTORY_DIR)) fs.mkdirSync(SYNC_HISTORY_DIR);
-if (!fs.existsSync(CLIENTS_FILE)) fs.writeFileSync(CLIENTS_FILE, JSON.stringify([], null, 2));
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: DATABASE_URL.includes('supabase.co') ? { rejectUnauthorized: false } : false,
+  max: 10,
+  idleTimeoutMillis: 30000,
+});
 
-// ──────────────────── 辅助工具函数 ────────────────────
-const readClients = () => {
-  try {
-    const data = fs.readFileSync(CLIENTS_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch (err) {
-    return [];
-  }
-};
+pool.on('error', (err) => console.error('[DB] Pool error:', err.message));
 
-const writeClients = (clients) => {
-  fs.writeFileSync(CLIENTS_FILE, JSON.stringify(clients, null, 2));
-};
-
-const readLogs = (clientId) => {
-  const file = path.join(LOGS_DIR, `${clientId}.json`);
-  if (!fs.existsSync(file)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (err) {
-    return [];
-  }
-};
-
-const writeLogs = (clientId, logs) => {
-  const file = path.join(LOGS_DIR, `${clientId}.json`);
-  fs.writeFileSync(file, JSON.stringify(logs, null, 2));
-};
-
-const readWikiPages = (clientId) => {
-  const clientWikiDir = path.join(WIKI_DIR, clientId);
-  if (!fs.existsSync(clientWikiDir)) return {};
-  
-  const pages = {};
-  const files = fs.readdirSync(clientWikiDir);
-  files.forEach(file => {
-    if (file.endsWith('.md')) {
-      const content = fs.readFileSync(path.join(clientWikiDir, file), 'utf8');
-      pages[file] = content;
+// ── DB helper（所有 SQL 都在 llmwiki schema）────────────────────────
+const db = {
+  query: async (sql, params) => {
+    const client = await pool.connect();
+    try {
+      return await client.query(sql, params);
+    } finally {
+      client.release();
     }
-  });
+  },
+};
+
+// ──────────────────── 数据访问层（替代文件读写）────────────────────
+
+const readClients = async () => {
+  const res = await db.query(
+    `SELECT id, name, age, gender, phone, allergies,
+            created_at AS "createdAt", last_sync_at AS "lastSyncAt"
+     FROM llmwiki.clients ORDER BY created_at DESC`,
+    []
+  );
+  return res.rows;
+};
+
+const findClient = async (id) => {
+  const res = await db.query(
+    `SELECT id, name, age, gender, phone, allergies,
+            created_at AS "createdAt", last_sync_at AS "lastSyncAt"
+     FROM llmwiki.clients WHERE id=$1`,
+    [id]
+  );
+  return res.rows[0] || null;
+};
+
+const createClient = async ({ id, name, age, gender, phone, allergies }) => {
+  const res = await db.query(
+    `INSERT INTO llmwiki.clients (id, name, age, gender, phone, allergies)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (id) DO UPDATE SET id=EXCLUDED.id  -- 幂等：已存在则返回现有行
+     RETURNING id, name, age, gender, phone, allergies,
+               created_at AS "createdAt", last_sync_at AS "lastSyncAt"`,
+    [id, name, age || null, gender || null, phone || null, allergies || null]
+  );
+  return res.rows[0];
+};
+
+const updateClientMeta = async (id, fields) => {
+  const setClauses = [];
+  const vals = [id];
+  if (fields.name      !== undefined) { vals.push(fields.name);      setClauses.push(`name=$${vals.length}`); }
+  if (fields.age       !== undefined) { vals.push(fields.age);       setClauses.push(`age=$${vals.length}`); }
+  if (fields.gender    !== undefined) { vals.push(fields.gender);    setClauses.push(`gender=$${vals.length}`); }
+  if (fields.phone     !== undefined) { vals.push(fields.phone);     setClauses.push(`phone=$${vals.length}`); }
+  if (fields.allergies !== undefined) { vals.push(fields.allergies); setClauses.push(`allergies=$${vals.length}`); }
+  if (fields.lastSyncAt !== undefined) { vals.push(fields.lastSyncAt); setClauses.push(`last_sync_at=$${vals.length}`); }
+  if (setClauses.length === 0) return findClient(id);
+  setClauses.push(`updated_at=${Date.now()}`);
+  const res = await db.query(
+    `UPDATE llmwiki.clients SET ${setClauses.join(',')} WHERE id=$1
+     RETURNING id, name, age, gender, phone, allergies,
+               created_at AS "createdAt", last_sync_at AS "lastSyncAt"`,
+    vals
+  );
+  return res.rows[0];
+};
+
+const deleteClientData = async (id) => {
+  // CASCADE 会自动删除 wiki_pages / client_logs / sync_history
+  await db.query('DELETE FROM llmwiki.clients WHERE id=$1', [id]);
+};
+
+const readWikiPages = async (clientId) => {
+  const res = await db.query(
+    'SELECT page_name, content FROM llmwiki.wiki_pages WHERE client_id=$1',
+    [clientId]
+  );
+  const pages = {};
+  res.rows.forEach(r => { pages[r.page_name] = r.content; });
   return pages;
 };
 
-const writeWikiPages = (clientId, pages) => {
-  const clientWikiDir = path.join(WIKI_DIR, clientId);
-  if (!fs.existsSync(clientWikiDir)) fs.mkdirSync(clientWikiDir, { recursive: true });
-  
-  Object.keys(pages).forEach(filename => {
-    if (filename.endsWith('.md')) {
-      fs.writeFileSync(path.join(clientWikiDir, filename), pages[filename], 'utf8');
-    }
-  });
+const writeWikiPages = async (clientId, pages) => {
+  for (const [pageName, content] of Object.entries(pages)) {
+    if (!pageName.endsWith('.md')) continue;
+    await db.query(
+      `INSERT INTO llmwiki.wiki_pages (client_id, page_name, content, updated_at)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (client_id, page_name)
+       DO UPDATE SET content=EXCLUDED.content, updated_at=EXCLUDED.updated_at`,
+      [clientId, pageName, content, Date.now()]
+    );
+  }
 };
 
-// ── Sync History（Wiki 变更日志）────────────────────────────
-const readSyncHistory = (clientId) => {
-  const file = path.join(SYNC_HISTORY_DIR, `${clientId}.json`);
-  if (!fs.existsSync(file)) return [];
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
+const readLogs = async (clientId) => {
+  const res = await db.query(
+    `SELECT id, type, title, content, source, synced,
+            created_at AS timestamp
+     FROM llmwiki.client_logs WHERE client_id=$1 ORDER BY created_at ASC`,
+    [clientId]
+  );
+  return res.rows.map(r => ({
+    ...r,
+    timestamp: new Date(Number(r.timestamp)).toISOString(),
+    synced: Boolean(r.synced),
+  }));
 };
 
-const appendSyncHistory = (clientId, entry) => {
-  const file = path.join(SYNC_HISTORY_DIR, `${clientId}.json`);
-  const history = readSyncHistory(clientId);
-  history.unshift(entry);               // 最新的放最前
-  if (history.length > 100) history.length = 100; // 最多保留 100 条
-  fs.writeFileSync(file, JSON.stringify(history, null, 2));
+const appendLog = async (clientId, log) => {
+  const res = await db.query(
+    `INSERT INTO llmwiki.client_logs (id, client_id, type, title, content, source, synced, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     RETURNING id, type, title, content, source, synced, created_at AS timestamp`,
+    [log.id, clientId, log.type, log.title || null, log.content,
+     log.source || null, false, log.created_at || Date.now()]
+  );
+  const r = res.rows[0];
+  return { ...r, timestamp: new Date(Number(r.timestamp)).toISOString(), synced: false };
 };
 
-const deleteClientData = (clientId) => {
-  // 删除 logs
-  const logFile = path.join(LOGS_DIR, `${clientId}.json`);
-  if (fs.existsSync(logFile)) fs.unlinkSync(logFile);
-  
-  // 删除 wiki 文件夹
-  const clientWikiDir = path.join(WIKI_DIR, clientId);
-  if (fs.existsSync(clientWikiDir)) {
-    fs.rmSync(clientWikiDir, { recursive: true, force: true });
-  }
-
-  // 删除 sync history
-  const syncFile = path.join(SYNC_HISTORY_DIR, `${clientId}.json`);
-  if (fs.existsSync(syncFile)) fs.unlinkSync(syncFile);
+const markLogsSynced = async (logIds) => {
+  if (!logIds || logIds.length === 0) return;
+  await db.query(
+    `UPDATE llmwiki.client_logs SET synced=TRUE WHERE id=ANY($1)`,
+    [logIds]
+  );
 };
 
+const readSyncHistory = async (clientId) => {
+  const res = await db.query(
+    `SELECT id, log_ids, summary, created_at
+     FROM llmwiki.sync_history WHERE client_id=$1 ORDER BY created_at DESC LIMIT 100`,
+    [clientId]
+  );
+  return res.rows.map(r => ({
+    ...r,
+    log_ids: r.log_ids ? JSON.parse(r.log_ids) : [],
+    timestamp: new Date(Number(r.created_at)).toISOString(),
+  }));
+};
 
-// 健壮的 JSON 解析与自动修复函数，防止 LLM 输出截断或转义错误导致 JSON.parse 崩溃
-const robustParseJson = (str) => {
-  let cleaned = str.trim();
-  if (cleaned.startsWith('```')) {
-    const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (match) cleaned = match[1].trim();
-  }
-  
-  try {
-    return JSON.parse(cleaned);
-  } catch (e) {
-    console.warn('[robustParseJson] 初始 JSON 解析失败，尝试进行括号及字符串闭合自动修复...', e.message);
-  }
-
-  let inString = false;
-  let escape = false;
-  let stack = [];
-  let repaired = '';
-  
-  for (let i = 0; i < cleaned.length; i++) {
-    const char = cleaned[i];
-    repaired += char;
-    
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    
-    if (char === '\\') {
-      escape = true;
-      continue;
-    }
-    
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-    
-    if (!inString) {
-      if (char === '{' || char === '[') {
-        stack.push(char);
-      } else if (char === '}') {
-        if (stack[stack.length - 1] === '{') stack.pop();
-      } else if (char === ']') {
-        if (stack[stack.length - 1] === '[') stack.pop();
-      }
-    }
-  }
-  
-  if (inString) {
-    repaired += '"';
-  }
-  
-  while (stack.length > 0) {
-    const open = stack.pop();
-    if (open === '{') repaired += '}';
-    if (open === '[') repaired += ']';
-  }
-  
-  try {
-    return JSON.parse(repaired);
-  } catch (e2) {
-    try {
-      const sanitized = repaired.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (match, p1) => {
-        return '"' + p1.replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
-      });
-      return JSON.parse(sanitized);
-    } catch (e3) {
-      throw new Error(`JSON 解析及自动修复失败: ${e.message}. 自动修复后错误: ${e3.message}. 原始字符串长度: ${str.length}`);
-    }
-  }
+const appendSyncHistory = async (clientId, entry) => {
+  await db.query(
+    `INSERT INTO llmwiki.sync_history (client_id, log_ids, summary, created_at)
+     VALUES ($1,$2,$3,$4)`,
+    [clientId, JSON.stringify(entry.logIds || []), JSON.stringify(entry), Date.now()]
+  );
 };
 
 // ──────────────────── 默认 Wiki 模板（PRD 8分区认知骨架）────────────────────
@@ -315,7 +304,6 @@ const createDefaultWiki = (client) => {
 
 // ──────────────────── 辅助：context-inject 注入逻辑 ────────────────────
 
-// 估算中文文本的大约 token 数（1 中文字符 ≈ 0.6 token，英文字母/数字 ≈ 0.25 token）
 const estimateTokens = (text) => {
   if (!text) return 0;
   const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
@@ -323,7 +311,6 @@ const estimateTokens = (text) => {
   return Math.ceil(chineseChars * 0.6 + otherChars * 0.25);
 };
 
-// 构建 Block 3 健康档案摘要：默认只用 index.md，附上按需取的工具提示
 const buildHealthContext = (wikiPages) => {
   const indexContent = wikiPages['index.md'] || '';
   const toolHint = `
@@ -335,34 +322,23 @@ const buildHealthContext = (wikiPages) => {
   return indexContent + toolHint;
 };
 
-// ── Prefetch：基于关键词匹配的轻量级 Section 检索 ──
-
-// 将 Wiki 页面切分为 section 片段（按 ## 标题分段）
 function splitWikiSections(wikiPages) {
   const sections = [];
-  const skipPages = ['user_profile.md']; // 用户画像单独注入，不参与 prefetch
+  const skipPages = ['user_profile.md'];
   for (const [filename, content] of Object.entries(wikiPages)) {
     if (skipPages.includes(filename) || !content) continue;
-    // 按 ## 标题切分
     const parts = content.split(/(?=^## )/m);
     for (const part of parts) {
       const trimmed = part.trim();
-      if (!trimmed || trimmed.length < 20) continue; // 跳过空段或太短的段
-      // 提取标题
+      if (!trimmed || trimmed.length < 20) continue;
       const titleMatch = trimmed.match(/^##?\s+(.+)/);
       const title = titleMatch ? titleMatch[1].trim() : '(无标题)';
-      sections.push({
-        filename,
-        title,
-        content: trimmed,
-        charCount: trimmed.length,
-      });
+      sections.push({ filename, title, content: trimmed, charCount: trimmed.length });
     }
   }
   return sections;
 }
 
-// BM25-lite 评分：对 query 做分词，然后在每个 section 里统计命中数和密度
 function scoreSection(section, queryTerms) {
   const text = (section.content + ' ' + section.filename).toLowerCase();
   let score = 0;
@@ -373,11 +349,9 @@ function scoreSection(section, queryTerms) {
     const matches = text.match(regex);
     if (matches) {
       matchCount += matches.length;
-      // TF 分：命中次数 / 文段长度（归一化）
       score += matches.length / Math.sqrt(section.charCount);
     }
   }
-  // 标题命中额外加权（标题里出现关键词更可能是相关段）
   const titleLower = section.title.toLowerCase();
   for (const term of queryTerms) {
     if (term && titleLower.includes(term)) score += 2.0;
@@ -385,13 +359,10 @@ function scoreSection(section, queryTerms) {
   return { ...section, score, matchCount };
 }
 
-// 对中文+英文混合 query 做简易分词：中文按字/2-gram，英文按空格
 function tokenizeQuery(query) {
   const terms = [];
-  // 英文单词
   const englishWords = query.match(/[a-zA-Z0-9]+/g) || [];
   terms.push(...englishWords.map(w => w.toLowerCase()));
-  // 中文：提取所有中文连续片段，按 2-gram 切分
   const chineseSegments = query.match(/[\u4e00-\u9fff]+/g) || [];
   for (const seg of chineseSegments) {
     if (seg.length <= 2) {
@@ -400,490 +371,443 @@ function tokenizeQuery(query) {
       for (let i = 0; i < seg.length - 1; i++) {
         terms.push(seg.substring(i, i + 2));
       }
-      // 也加入整段（精确匹配权重高）
       if (seg.length <= 6) terms.push(seg);
     }
   }
-  return [...new Set(terms)]; // 去重
+  return [...new Set(terms)];
 }
 
-// Prefetch 主函数：返回最相关的 top-N section 片段
 function prefetchRelevantSections(wikiPages, query, topN = 6) {
   const sections = splitWikiSections(wikiPages);
   if (sections.length === 0) return [];
   const queryTerms = tokenizeQuery(query);
   if (queryTerms.length === 0) return [];
-
-  const scored = sections
+  return sections
     .map(s => scoreSection(s, queryTerms))
     .filter(s => s.matchCount > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, topN);
-
-  return scored;
 }
 
-// 构建 prefetch 模式下的健康档案注入内容
 function buildPrefetchContext(wikiPages, query) {
   const sections = prefetchRelevantSections(wikiPages, query, 6);
-  if (sections.length === 0) {
-    // 没有匹配，降级回全量 index.md
-    return buildHealthContext(wikiPages);
-  }
-
+  if (sections.length === 0) return buildHealthContext(wikiPages);
   const header = `📌 **以下是与当前问题最相关的健康档案片段**（共 ${sections.length} 段，按相关性排序）：\n`;
   const body = sections.map((s, i) =>
     `### [${i + 1}] ${s.filename} › ${s.title}\n${s.content}`
   ).join('\n\n---\n\n');
-
   const toolHint = `\n---\n📋 **如需更多详情可调用工具**：\n- \`get_medical_history\` → 完整历史病史\n- \`get_medication_plan\` → 完整用药方案`;
-
   return header + body + toolHint;
 }
 
+// ──────────────────── 健壮 JSON 解析 ────────────────────
+const robustParseJson = (str) => {
+  let cleaned = str.trim();
+  if (cleaned.startsWith('```')) {
+    const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match) cleaned = match[1].trim();
+  }
+  try { return JSON.parse(cleaned); } catch (e) {
+    console.warn('[robustParseJson] 初始解析失败，尝试修复...', e.message);
+  }
+  let inString = false, escape = false, stack = [], repaired = '';
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i];
+    repaired += char;
+    if (escape) { escape = false; continue; }
+    if (char === '\\') { escape = true; continue; }
+    if (char === '"') { inString = !inString; continue; }
+    if (!inString) {
+      if (char === '{' || char === '[') stack.push(char);
+      else if (char === '}' && stack[stack.length - 1] === '{') stack.pop();
+      else if (char === ']' && stack[stack.length - 1] === '[') stack.pop();
+    }
+  }
+  if (inString) repaired += '"';
+  while (stack.length > 0) {
+    const open = stack.pop();
+    if (open === '{') repaired += '}';
+    if (open === '[') repaired += ']';
+  }
+  try { return JSON.parse(repaired); } catch (e2) {
+    try {
+      const sanitized = repaired.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (match, p1) =>
+        '"' + p1.replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"'
+      );
+      return JSON.parse(sanitized);
+    } catch (e3) {
+      throw new Error(`JSON 解析及修复失败: ${e2.message}`);
+    }
+  }
+};
 
 
 // ──────────────────── REST APIs ────────────────────
 
 // 1. 获取所有客户列表
-app.get('/api/clients', (req, res) => {
-  const clients = readClients();
-  res.json(clients);
+app.get('/api/clients', async (req, res) => {
+  try {
+    const clients = await readClients();
+    res.json(clients);
+  } catch (err) {
+    console.error('[GET /clients]', err);
+    res.status(500).json({ error: '获取客户列表失败: ' + err.message });
+  }
 });
 
 // 2. 创建客户
-app.post('/api/clients', (req, res) => {
-  const { id: externalId, name, age, gender, phone, allergies } = req.body;
-  if (!name) return res.status(400).json({ error: '姓名是必填项' });
+app.post('/api/clients', async (req, res) => {
+  try {
+    const { id: externalId, name, age, gender, phone, allergies } = req.body;
+    if (!name) return res.status(400).json({ error: '姓名是必填项' });
 
-  const clients = readClients();
+    const clientId = externalId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
-  // 支持外部指定 id（Agent 自动建档场景），如已存在则直接返回
-  const clientId = externalId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-  const existing = clients.find(c => c.id === clientId);
-  if (existing) {
-    return res.status(200).json(existing); // 幂等：已存在就返回，不报错
+    // 幂等：已存在直接返回
+    const existing = await findClient(clientId);
+    if (existing) return res.status(200).json(existing);
+
+    const newClient = await createClient({
+      id: clientId, name,
+      age: age ? parseInt(age) : null,
+      gender, phone, allergies
+    });
+
+    // 初始化默认 Wiki
+    const defaultWiki = createDefaultWiki(newClient);
+    await writeWikiPages(newClient.id, defaultWiki);
+
+    console.log(`[CreateClient] 新建客户 id=${clientId} name=${name} external=${!!externalId}`);
+    res.status(201).json(newClient);
+  } catch (err) {
+    console.error('[POST /clients]', err);
+    res.status(500).json({ error: '创建客户失败: ' + err.message });
   }
-
-  const newClient = {
-    id: clientId,
-    name,
-    age: age ? parseInt(age) : null,
-    gender,
-    phone,
-    allergies,
-    createdAt: new Date().toISOString(),
-    lastSyncAt: null
-  };
-
-  clients.push(newClient);
-  writeClients(clients);
-
-  // 初始化默认 Wiki
-  const defaultWiki = createDefaultWiki(newClient);
-  writeWikiPages(newClient.id, defaultWiki);
-
-  console.log(`[CreateClient] 新建客户 id=${clientId} name=${name} external=${!!externalId}`);
-  res.status(201).json(newClient);
 });
 
 // 3. 更新客户基本信息
-app.put('/api/clients/:id', (req, res) => {
-  const { id } = req.params;
-  const { name, age, gender, phone, allergies } = req.body;
+app.put('/api/clients/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, age, gender, phone, allergies } = req.body;
 
-  const clients = readClients();
-  const index = clients.findIndex(c => c.id === id);
-  if (index === -1) return res.status(404).json({ error: '客户不存在' });
+    const client = await findClient(id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
 
-  clients[index] = {
-    ...clients[index],
-    name: name || clients[index].name,
-    age: age !== undefined ? parseInt(age) : clients[index].age,
-    gender: gender !== undefined ? gender : clients[index].gender,
-    phone: phone !== undefined ? phone : clients[index].phone,
-    allergies: allergies !== undefined ? allergies : clients[index].allergies
-  };
-
-  writeClients(clients);
-  res.json(clients[index]);
+    const updated = await updateClientMeta(id, {
+      name: name || client.name,
+      age: age !== undefined ? parseInt(age) : client.age,
+      gender: gender !== undefined ? gender : client.gender,
+      phone: phone !== undefined ? phone : client.phone,
+      allergies: allergies !== undefined ? allergies : client.allergies,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error('[PUT /clients/:id]', err);
+    res.status(500).json({ error: '更新客户失败: ' + err.message });
+  }
 });
 
 // 4. 删除客户
-app.delete('/api/clients/:id', (req, res) => {
-  const { id } = req.params;
-  let clients = readClients();
-  const index = clients.findIndex(c => c.id === id);
-  if (index === -1) return res.status(404).json({ error: '客户不存在' });
+app.delete('/api/clients/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = await findClient(id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
 
-  clients.splice(index, 1);
-  writeClients(clients);
-  deleteClientData(id);
-
-  res.json({ success: true, message: '客户及相关 Wiki 档案已成功删除' });
+    await deleteClientData(id); // CASCADE 删除关联数据
+    res.json({ success: true, message: '客户及相关 Wiki 档案已成功删除' });
+  } catch (err) {
+    console.error('[DELETE /clients/:id]', err);
+    res.status(500).json({ error: '删除客户失败: ' + err.message });
+  }
 });
 
 // 5. 获取客户 Wiki 的所有页面
-app.get('/api/clients/:id/wiki', (req, res) => {
-  const { id } = req.params;
-  const clients = readClients();
-  if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
-
-  const wikiPages = readWikiPages(id);
-  res.json(wikiPages);
+app.get('/api/clients/:id/wiki', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!await findClient(id)) return res.status(404).json({ error: '客户不存在' });
+    const wikiPages = await readWikiPages(id);
+    res.json(wikiPages);
+  } catch (err) {
+    console.error('[GET /clients/:id/wiki]', err);
+    res.status(500).json({ error: '获取 Wiki 失败: ' + err.message });
+  }
 });
 
-// 5b. Agent 专用：获取格式化好的 System Prompt 注入内容
-// 返回 user_profile（全量）+ health_wiki + token 估算
-// 支持 ?query=xxx 启用 prefetch 模式（按关键词检索最相关的 wiki 片段）
-app.get('/api/clients/:id/context-inject', (req, res) => {
-  const { id } = req.params;
-  const query = req.query.query || ''; // prefetch 关键词
-  const clients = readClients();
-  const client = clients.find(c => c.id === id);
-  if (!client) return res.status(404).json({ error: '客户不存在' });
+// 5b. Agent 专用：context-inject
+app.get('/api/clients/:id/context-inject', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = req.query.query || '';
+    const client = await findClient(id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
 
-  const wikiPages = readWikiPages(id);
-  const userProfile = wikiPages['user_profile.md'] || '';
+    const wikiPages = await readWikiPages(id);
+    const userProfile = wikiPages['user_profile.md'] || '';
 
-  // ── 新用户（从未 sync 过）：不注入空模板，避免误导 ──
-  if (!client.lastSyncAt) {
-    const brief = client.allergies ? `⚠️ 过敏史：${client.allergies}` : '';
-    return res.json({
+    if (!client.lastSyncAt) {
+      const brief = client.allergies ? `⚠️ 过敏史：${client.allergies}` : '';
+      return res.json({
+        user_profile: userProfile,
+        health_wiki: brief,
+        mode: 'new_user',
+        token_estimate: {
+          user_profile: estimateTokens(userProfile),
+          health_wiki: estimateTokens(brief),
+          total: estimateTokens(userProfile) + estimateTokens(brief)
+        }
+      });
+    }
+
+    const usePrefetch = query.trim().length > 0;
+    const healthWiki = usePrefetch
+      ? buildPrefetchContext(wikiPages, query)
+      : buildHealthContext(wikiPages);
+
+    res.json({
       user_profile: userProfile,
-      health_wiki: brief,  // 只返回关键安全信息（过敏），不返回占位模板
-      mode: 'new_user',
+      health_wiki: healthWiki,
+      mode: usePrefetch ? 'prefetch' : 'full',
       token_estimate: {
         user_profile: estimateTokens(userProfile),
-        health_wiki: estimateTokens(brief),
-        total: estimateTokens(userProfile) + estimateTokens(brief)
+        health_wiki: estimateTokens(healthWiki),
+        total: estimateTokens(userProfile) + estimateTokens(healthWiki)
       }
     });
+  } catch (err) {
+    console.error('[GET /clients/:id/context-inject]', err);
+    res.status(500).json({ error: '获取 context 失败: ' + err.message });
   }
-
-  // 有 query → prefetch 模式（检索相关片段）；无 query → 全量 index.md
-  const usePrefetch = query.trim().length > 0;
-  const healthWiki = usePrefetch
-    ? buildPrefetchContext(wikiPages, query)
-    : buildHealthContext(wikiPages);
-
-  res.json({
-    user_profile: userProfile,
-    health_wiki: healthWiki,
-    mode: usePrefetch ? 'prefetch' : 'full',
-    token_estimate: {
-      user_profile: estimateTokens(userProfile),
-      health_wiki: estimateTokens(healthWiki),
-      total: estimateTokens(userProfile) + estimateTokens(healthWiki)
-    }
-  });
 });
 
+// 6. 保存/修改单个 Wiki 页面
+app.put('/api/clients/:id/wiki/:pageName', async (req, res) => {
+  try {
+    const { id, pageName } = req.params;
+    const { content } = req.body;
 
-// 6. 保存/修改单个 Wiki 页面（手动编辑）
-app.put('/api/clients/:id/wiki/:pageName', (req, res) => {
-  const { id, pageName } = req.params;
-  const { content } = req.body;
+    if (!await findClient(id)) return res.status(404).json({ error: '客户不存在' });
+    if (!pageName.endsWith('.md')) return res.status(400).json({ error: '仅支持保存 .md 格式的 Wiki 页面' });
+    if (pageName.includes('..') || pageName.includes('/') || pageName.includes('\\'))
+      return res.status(400).json({ error: '页面名称不合法' });
 
-  const clients = readClients();
-  if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
-  if (!pageName.endsWith('.md')) return res.status(400).json({ error: '仅支持保存 .md 格式的 Wiki 页面' });
-  if (pageName.includes('..') || pageName.includes('/') || pageName.includes('\\')) return res.status(400).json({ error: '页面名称不合法' });
-
-  const pages = { [pageName]: content };
-  writeWikiPages(id, pages);
-  res.json({ success: true, message: `页面 ${pageName} 保存成功` });
+    await writeWikiPages(id, { [pageName]: content });
+    res.json({ success: true, message: `页面 ${pageName} 保存成功` });
+  } catch (err) {
+    console.error('[PUT /clients/:id/wiki/:pageName]', err);
+    res.status(500).json({ error: '保存 Wiki 页面失败: ' + err.message });
+  }
 });
 
 // 7. 获取客户的原始日志
-app.get('/api/clients/:id/logs', (req, res) => {
-  const { id } = req.params;
-  const clients = readClients();
-  if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
-
-  const logs = readLogs(id);
-  res.json(logs);
+app.get('/api/clients/:id/logs', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!await findClient(id)) return res.status(404).json({ error: '客户不存在' });
+    const logs = await readLogs(id);
+    res.json(logs);
+  } catch (err) {
+    console.error('[GET /clients/:id/logs]', err);
+    res.status(500).json({ error: '获取日志失败: ' + err.message });
+  }
 });
 
 // 8. 录入一条新的原始沟通日志
-app.post('/api/clients/:id/logs', (req, res) => {
-  const { id } = req.params;
-  const { type, content, title } = req.body; // type: phone | video | wechat | ocr
-  if (!type || !content) return res.status(400).json({ error: '类型和内容为必填项' });
+app.post('/api/clients/:id/logs', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type, content, title } = req.body;
+    if (!type || !content) return res.status(400).json({ error: '类型和内容为必填项' });
 
-  // Strict enum validation for log type
-  const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr'];
-  if (!VALID_LOG_TYPES.includes(type)) {
-    return res.status(400).json({ error: `日志类型无效，必须是以下之一: ${VALID_LOG_TYPES.join(', ')}` });
-  }
+    const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr'];
+    if (!VALID_LOG_TYPES.includes(type))
+      return res.status(400).json({ error: `日志类型无效，必须是以下之一: ${VALID_LOG_TYPES.join(', ')}` });
 
-  const clients = readClients();
-  if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
-
-  const logs = readLogs(id);
-  const randomSuffix = Math.random().toString(36).substring(2, 6);
-  const newLog = {
-    id: `log_${Date.now()}_${randomSuffix}`,
-    type,
-    title: title || `${type === 'phone' ? '电话问诊' : type === 'video' ? '视频问诊' : type === 'wechat' ? '企微记录' : '单证OCR'} (${new Date().toLocaleDateString()})`,
-    content,
-    timestamp: new Date().toISOString(),
-    synced: false
-  };
-
-  logs.push(newLog);
-  writeLogs(id, logs);
-  res.status(201).json(newLog);
-});
-
-// 8b. 批量录入多条沟通日志（Agent 在触发 sync 时使用，减少 HTTP 请求次数）
-app.post('/api/clients/:id/logs/batch', (req, res) => {
-  const { id } = req.params;
-  const { logs: inputLogs } = req.body;
-
-  if (!Array.isArray(inputLogs) || inputLogs.length === 0) {
-    return res.status(400).json({ error: 'logs 字段必须是非空数组' });
-  }
-
-  const clients = readClients();
-  if (!clients.some(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
-
-  const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr'];
-  const existingLogs = readLogs(id);
-  const insertedIds = [];
-  const errors = [];
-
-  for (let i = 0; i < inputLogs.length; i++) {
-    const { type, content, title } = inputLogs[i];
-    if (!type || !content) { errors.push(`第${i+1}条缺少 type 或 content`); continue; }
-    if (!VALID_LOG_TYPES.includes(type)) { errors.push(`第${i+1}条 type 无效: ${type}`); continue; }
+    if (!await findClient(id)) return res.status(404).json({ error: '客户不存在' });
 
     const randomSuffix = Math.random().toString(36).substring(2, 6);
     const newLog = {
       id: `log_${Date.now()}_${randomSuffix}`,
       type,
-      title: title || `批量录入-${type} (${new Date().toLocaleDateString()})`,
+      title: title || `${type === 'phone' ? '电话问诊' : type === 'video' ? '视频问诊' : type === 'wechat' ? '企微记录' : '单证OCR'} (${new Date().toLocaleDateString()})`,
       content,
-      timestamp: new Date().toISOString(),
-      synced: false
+      created_at: Date.now(),
     };
-    existingLogs.push(newLog);
-    insertedIds.push(newLog.id);
-  }
 
-  writeLogs(id, existingLogs);
-  res.status(201).json({
-    success: true,
-    inserted: insertedIds.length,
-    ids: insertedIds,
-    errors: errors.length > 0 ? errors : undefined
-  });
+    const saved = await appendLog(id, newLog);
+    res.status(201).json(saved);
+  } catch (err) {
+    console.error('[POST /clients/:id/logs]', err);
+    res.status(500).json({ error: '录入日志失败: ' + err.message });
+  }
 });
 
-// ──────────────────── LLM 增量汇总逻辑（Gemini Flash via OpenAI 兼容）────────────────────
+// 8b. 批量录入多条沟通日志
+app.post('/api/clients/:id/logs/batch', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { logs: inputLogs } = req.body;
+
+    if (!Array.isArray(inputLogs) || inputLogs.length === 0)
+      return res.status(400).json({ error: 'logs 字段必须是非空数组' });
+
+    if (!await findClient(id)) return res.status(404).json({ error: '客户不存在' });
+
+    const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr'];
+    const insertedIds = [];
+    const errors = [];
+
+    for (let i = 0; i < inputLogs.length; i++) {
+      const { type, content, title } = inputLogs[i];
+      if (!type || !content) { errors.push(`第${i + 1}条缺少 type 或 content`); continue; }
+      if (!VALID_LOG_TYPES.includes(type)) { errors.push(`第${i + 1}条 type 无效: ${type}`); continue; }
+
+      const randomSuffix = Math.random().toString(36).substring(2, 6);
+      const newLog = {
+        id: `log_${Date.now()}_${randomSuffix}`,
+        type,
+        title: title || `批量录入-${type} (${new Date().toLocaleDateString()})`,
+        content,
+        created_at: Date.now(),
+      };
+      await appendLog(id, newLog);
+      insertedIds.push(newLog.id);
+    }
+
+    res.status(201).json({
+      success: true,
+      inserted: insertedIds.length,
+      ids: insertedIds,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (err) {
+    console.error('[POST /clients/:id/logs/batch]', err);
+    res.status(500).json({ error: '批量录入失败: ' + err.message });
+  }
+});
+
+// ──────────────────── LLM 增量汇总逻辑 ────────────────────
 
 let _openaiClient = null;
 function getOpenAI() {
   if (!_openaiClient) {
-    // 优先用 Gemini，降级到 Doubao
     const apiKey = process.env.GEMINI_API_KEY || process.env.ARK_API_KEY;
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY 或 ARK_API_KEY 环境变量未设置，无法调用 LLM');
-    }
+    if (!apiKey) throw new Error('GEMINI_API_KEY 或 ARK_API_KEY 环境变量未设置');
     const baseURL = process.env.GEMINI_API_KEY
       ? 'https://generativelanguage.googleapis.com/v1beta/openai/'
       : (process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3');
     console.log(`[LLM] 使用 ${process.env.GEMINI_API_KEY ? 'Gemini' : 'Doubao'} baseURL=${baseURL}`);
-    _openaiClient = new OpenAI({
-      apiKey,
-      baseURL,
-    });
+    _openaiClient = new OpenAI({ apiKey, baseURL });
   }
   return _openaiClient;
 }
 
+// 9. Wiki 同步（多阶段 AI Pipeline）
 app.post('/api/clients/:id/sync', async (req, res) => {
   const { id } = req.params;
-  const clients = readClients();
-  const clientIndex = clients.findIndex(c => c.id === id);
-  if (clientIndex === -1) return res.status(404).json({ error: '客户不存在' });
-
-  const client = clients[clientIndex];
-  const logs = readLogs(id);
-  const unsyncedLogs = logs.filter(l => !l.synced);
-
-  if (unsyncedLogs.length === 0) {
-    return res.json({ message: '暂无未同步的沟通记录', wikiUpdated: false });
-  }
-
-  const currentWiki = readWikiPages(id);
+  const syncStartTime = Date.now();
 
   try {
-    const syncStartTime = Date.now();
-    // -------------------------------------------------------------
-    // Stage 1: Fact Parse & Categorization
-    // -------------------------------------------------------------
-    const s1Start = Date.now();
-    console.log(`[Stage 1] Extracting clinical facts from ${unsyncedLogs.length} logs for client ${id}...`);
-    const stage1Prompt = `你是一个非常专业且细心的医疗事实提取助手。请从下面新增的沟通记录中提取所有的临床观察、医疗干预事实，以及用户画像信息（例如：新增诊断、主诉症状、生理指标数值、化验/CT检查结果、用药变更、留置管道、护理措施、沟通偏好、个人背景等）。
-严禁凭空编造事实或添加沟通记录中未提及的内容。对于每一条事实，必须明确匹配其来自哪一条沟通记录 of ID。
+    const client = await findClient(id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
 
-请将提取的事实分类为：
-1. "observation"：临床观察，包括：
-   - "signal"：基础生理信号数值（血压、心率、呼吸、体温、血氧、血糖、HRV 等具体数字）
-   - "finding"：检查检验结果（化验单、影像CT/X光/MRI、病理检查等）
-   - "functional"：患者活动、睡眠、认知、语言、神志、瘫痪或反射异常等功能状态变化
-2. "intervention"：医疗干预，包括：
-   - "treatment"：药物治疗、用药变更、输液、手术等
-   - "pipeline"：留置管道（气管插管、深静脉置管、胃管、尿管等）
-   - "protection"：安全约束、防坠床防护等
-   - "care"：体位护理、翻身排痰、皮肤护理、饮食限制等
-3. "user_profile"：用户画像信息（非医疗事实，而是关于用户本人的沟通/背景信息），包括：
-   - "preference"：沟通偏好（如"请简短回答"、"我喜欢详细解释"、"不要用专业术语"）
-   - "background"：个人背景（如"我老公是医生"、"我在北京"、"我是护士"、"我不懂医学"）
-   - "taboo"：禁忌内容（如"不要提住院"、"家人不知道病情"、"不要说癌症"）
-   - "social"：个人社会属性（如主要照护者是谁、家庭状况、医保情况、经济考量）
+    const allLogs = await readLogs(id);
+    const unsyncedLogs = allLogs.filter(l => !l.synced);
 
-新增沟通记录内容如下：
-${unsyncedLogs.map(log => `
-[ID: ${log.id}] [类型: ${log.type}] [标题: ${log.title}] [时间: ${log.timestamp}]
-内容: 
-${log.content}
-`).join('\n\n')}
-
-请直接输出一个合法的 JSON 对象，格式必须符合以下示例，不要有任何 Markdown 代码块包裹或解释性前缀后缀：
-{
-  "facts": [
-    {
-      "type": "observation",
-      "subtype": "signal",
-      "content": "血压 198/112 mmHg",
-      "log_id": "log_..."
-    },
-    {
-      "type": "observation",
-      "subtype": "functional",
-      "content": "神志呈嗜睡/浅昏迷状态，右侧肢体肌力 0 级",
-      "log_id": "log_..."
-    },
-    {
-      "type": "intervention",
-      "subtype": "treatment",
-      "content": "静脉滴注甘露醇 250ml",
-      "log_id": "log_..."
-    },
-    {
-      "type": "user_profile",
-      "subtype": "preference",
-      "content": "用户希望用简单易懂的语言解释，不要太多专业术语",
-      "log_id": "log_..."
-    },
-    {
-      "type": "user_profile",
-      "subtype": "background",
-      "content": "用户的丈夫是骨科医生，有一定医学基础",
-      "log_id": "log_..."
+    if (unsyncedLogs.length === 0) {
+      return res.json({ message: '没有待同步的日志', wikiUpdated: false });
     }
-  ]
-}`;
+
+    const currentWiki = await readWikiPages(id);
+
+    // ── Stage 1: Extractor ──
+    const s1Start = Date.now();
+    console.log('[Stage 1] Extracting clinical facts...');
+
+    const logsForExtraction = unsyncedLogs.map(l =>
+      `[日志ID: ${l.id}] [类型: ${l.type}] [时间: ${l.timestamp}]\n${l.content}`
+    ).join('\n\n---\n\n');
+
+    const stage1Prompt = `你是一个专业的医疗信息提取助手。请从以下沟通记录中，提取出所有值得写入医疗 Wiki 档案的结构化临床事实，并以 JSON 数组格式输出。
+
+【提取规范】：
+1. 提取客观医疗信息：生理信号（血压、心率、血糖等）、化验结果、诊断、用药、治疗干预、症状主诉、功能变化。
+2. 提取用户画像信息：年龄、性别、职业、生活习惯、沟通偏好等有助于健康管理的背景信息。
+3. 每条事实必须关联其来源日志 ID（evidence_refs）。
+4. 绝对禁止：AI确诊、AI诊断、危及生命等诊断性或恐慌性表达。
+5. 对每条 observation 事实，估算 attention_score（0-1），严重/紧急情况给高分。
+
+输出格式（JSON 数组）：
+[
+  {
+    "type": "observation | intervention | user_profile",
+    "subtype": "signal | finding | functional | treatment | pipeline | protection | care | basic | preference | note | social",
+    "content": "客观描述",
+    "log_id": "对应的日志ID",
+    "attention_score": 0.5
+  }
+]
+
+沟通记录：
+${logsForExtraction}`;
 
     const stage1Response = await getOpenAI().chat.completions.create({
       model: process.env.SYNC_MODEL || 'gemini-3.6-flash',
       messages: [
-        { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
+        { role: 'system', content: 'You are a medical information extraction assistant. Output strict JSON array only.' },
         { role: 'user', content: stage1Prompt }
       ],
-      temperature: 0.1,
-      response_format: { type: "json_object" }
+      temperature: 0.05,
+      response_format: { type: 'json_object' }
     });
 
-    const stage1Content = stage1Response.choices[0]?.message?.content || '{}';
-    let parsedFactsObj;
+    const stage1Content = stage1Response.choices[0]?.message?.content || '[]';
+    let rawFacts;
     try {
-      parsedFactsObj = robustParseJson(stage1Content);
+      const parsed = robustParseJson(stage1Content);
+      rawFacts = Array.isArray(parsed) ? parsed : (parsed.facts || parsed.items || []);
     } catch (e) {
-      console.error('Failed to parse Stage 1 JSON:', stage1Content);
-      throw new Error('临床事实提取失败：' + e.message);
+      throw new Error('Stage 1 JSON 解析失败: ' + e.message);
     }
 
-    const facts = parsedFactsObj.facts || [];
-    console.log(`[Stage 1] ✓ 完成 (${Date.now() - s1Start}ms, ${facts.length} 条事实)`);
+    const facts = rawFacts.map(f => ({
+      type: f.type || 'observation',
+      subtype: f.subtype || 'finding',
+      content: f.content || '',
+      log_id: f.log_id || f.evidence_refs?.[0] || null,
+      attention_score: typeof f.attention_score === 'number' ? f.attention_score : 0.3,
+    })).filter(f => f.content);
 
-    // -------------------------------------------------------------
-    // Stage 2: Heuristic-based Attention Scoring
-    // -------------------------------------------------------------
+    console.log(`[Stage 1] ✓ 提取 ${facts.length} 条事实 (${Date.now() - s1Start}ms)`);
+
+    // ── Stage 2: Scorer（Attention Score 校准）──
     const s2Start = Date.now();
-    console.log('[Stage 2] Calculating attention scores for observations...');
+    const highPriorityKeywords = ['昏迷', '嗜睡', '意识障碍', '失语', '偏瘫', '脑出血', '脑疝', '呼吸困难', '窒息', '大出血', '呼吸衰竭'];
+    const mediumPriorityKeywords = ['骨折', '发热', '体温过高', '心率过快', '心动过速', '胸闷', '气促', '低血压'];
     facts.forEach(fact => {
       if (fact.type === 'observation') {
-        let score = 0.3; // 默认基础分
-        const text = fact.content.toLowerCase();
-
-        // 1. 血氧饱和度 (SpO2) 异常
-        const spo2Match = text.match(/(?:spo2|血氧饱和度|血氧)\s*(?:[<≤：:]\s*|仅|是|为)?\s*(\d+)%/i);
-        if (spo2Match) {
-          const val = parseInt(spo2Match[1]);
-          if (val < 90) score = Math.max(score, 0.95);
-          else if (val < 95) score = Math.max(score, 0.7);
-        }
-
-        // 2. 血压异常
-        const bpMatch = text.match(/(\d{3})\s*\/\s*(\d{2,3})/);
-        if (bpMatch) {
-          const sys = parseInt(bpMatch[1]);
-          const dia = parseInt(bpMatch[2]);
-          if (sys >= 180 || dia >= 110) score = Math.max(score, 0.9);
-          else if (sys >= 140 || dia >= 90) score = Math.max(score, 0.6);
-        }
-
-        // 3. 血糖异常
-        const glucoseMatch = text.match(/(?:血糖|指尖血糖|空腹血糖|餐后血糖)\s*(?:[：:]|是|为)?\s*(\d+(?:\.\d+)?)\s*mmol/i);
-        if (glucoseMatch) {
-          const val = parseFloat(glucoseMatch[1]);
-          if (val > 10.0 || val < 3.9) score = Math.max(score, 0.85);
-          else if (val > 7.0) score = Math.max(score, 0.6);
-        }
-
-        // 4. 重大神经与意识受损核心诊断/主诉关键词
-        const highPriorityKeywords = [
-          '昏迷', '嗜睡', '意识障碍', '失语', '偏瘫', '肌力0级', '肌力1级', '肌力2级', '肌力3级',
-          '脑出血', '瞳孔反射', '脑疝', '呼吸困难', '窒息', '大出血', '呼吸衰竭'
-        ];
-        const mediumPriorityKeywords = [
-          '骨折', '发热', '体温过高', '心率过快', '心动过速', '胸闷', '气促', '低血压'
-        ];
-
-        for (const kw of highPriorityKeywords) {
-          if (text.includes(kw)) {
-            score = Math.max(score, 0.9);
-          }
-        }
-        for (const kw of mediumPriorityKeywords) {
-          if (text.includes(kw)) {
-            score = Math.max(score, 0.75);
-          }
-        }
-
+        let score = fact.attention_score || 0.3;
+        const text = fact.content;
+        for (const kw of highPriorityKeywords) { if (text.includes(kw)) score = Math.max(score, 0.9); }
+        for (const kw of mediumPriorityKeywords) { if (text.includes(kw)) score = Math.max(score, 0.75); }
         fact.attention_score = parseFloat(score.toFixed(2));
       }
     });
     console.log(`[Stage 2] ✓ 完成 (${Date.now() - s2Start}ms)`);
 
-    // -------------------------------------------------------------
-    // Stage 3: Assembler & Merge into Wiki pages
-    // -------------------------------------------------------------
+    // ── Stage 3: Assembler & Merge ──
     const s3Start = Date.now();
-    console.log('[Stage 3] Merging clinical facts and generating formatted markdown blocks...');
-    
-    // 格式化传入 Stage 3 的事实列表，确保大模型获得清晰的数据关联
+    console.log('[Stage 3] Merging facts into wiki pages...');
+
     const formattedFactsForLLM = facts.map((f, idx) => {
-      if (f.type === 'observation') {
+      if (f.type === 'observation')
         return `[事实 #${idx}] 类型: observation, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'}, 推荐 Attention Score: ${f.attention_score}`;
-      } else if (f.type === 'user_profile') {
+      else if (f.type === 'user_profile')
         return `[事实 #${idx}] 类型: user_profile, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'} → 写入 user_profile.md`;
-      } else {
+      else
         return `[事实 #${idx}] 类型: intervention, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'}`;
-      }
     }).join('\n');
 
     const stage3Prompt = `你是一个非常专业且细心的医疗健康档案助理。请根据下面给出的【新增结构化事实】，增量更新客户的专属 Markdown Wiki 档案。
@@ -921,7 +845,7 @@ ${formattedFactsForLLM}
        - 溯源ID
      attention_score: 注意力分数
      \`\`\`
-     其中 \`attention_score\` 必须取我们给出的“推荐 Attention Score”数值。\`evidence_refs\` 是包含“溯源ID”的 YAML 列表。
+     其中 \`attention_score\` 必须取我们给出的"推荐 Attention Score"数值。\`evidence_refs\` 是包含"溯源ID"的 YAML 列表。
    - 所有新增加的 **intervention**（如用药、治疗、管道、护理措施）必须在对应的干预措施列表中使用以下自定义 Block 格式输出：
      \`\`\`intervention-block
      type: intervention
@@ -940,14 +864,15 @@ ${formattedFactsForLLM}
   "medication_plan.md": "# 用药方案..."
 }`;
 
+
     const stage3Response = await getOpenAI().chat.completions.create({
       model: process.env.SYNC_MODEL || 'gemini-3.6-flash',
       messages: [
-        { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
+        { role: 'system', content: 'You are a professional assistant that outputs strict JSON only.' },
         { role: 'user', content: stage3Prompt }
       ],
       temperature: 0.1,
-      response_format: { type: "json_object" }
+      response_format: { type: 'json_object' }
     });
 
     const stage3Content = stage3Response.choices[0]?.message?.content || '{}';
@@ -955,47 +880,34 @@ ${formattedFactsForLLM}
     try {
       updatedWiki = robustParseJson(stage3Content);
     } catch (e) {
-      console.error('Failed to parse Stage 3 JSON:', stage3Content);
-      throw new Error('大模型返回的 Wiki JSON 解析失败: ' + e.message);
+      throw new Error('Stage 3 JSON 解析失败: ' + e.message);
     }
 
-    // 验证返回的 Wiki 页面是否有效
     const fileKeys = ['index.md', 'medical_history.md', 'medication_plan.md', 'communication_timeline.md', 'user_profile.md'];
-    const validUpdate = fileKeys.some(key => updatedWiki[key] !== undefined);
-    if (!validUpdate) {
-      throw new Error('大模型未能返回任何有效的 Wiki 页面 JSON 数据');
-    }
+    if (!fileKeys.some(k => updatedWiki[k] !== undefined))
+      throw new Error('大模型未能返回任何有效的 Wiki 页面');
 
-    // 写入更新后的 Wiki 页面（若报错则不进行物理写入，保障事务隔离）
-    writeWikiPages(id, updatedWiki);
-
-    // 将这些 logs 标记为已同步
-    logs.forEach(l => {
-      if (!l.synced) l.synced = true;
-    });
-    writeLogs(id, logs);
-
-    // 更新客户最后同步时间
-    client.lastSyncAt = new Date().toISOString();
-    writeClients(clients);
+    // 写入更新
+    await writeWikiPages(id, updatedWiki);
+    await markLogsSynced(unsyncedLogs.map(l => l.id));
+    await updateClientMeta(id, { lastSyncAt: new Date().toISOString() });
 
     const s1Ms = s2Start - s1Start;
     const s2Ms = s3Start - s2Start;
     const s3Ms = Date.now() - s3Start;
     const totalMs = Date.now() - syncStartTime;
-    console.log(`[Stage 3] ✓ 完成 (${s3Ms}ms)`);
-    console.log(`[Sync] ✓ 全流程完成 总耗时=${totalMs}ms (S1=${s1Ms}ms S2=${s2Ms}ms S3=${s3Ms}ms)`);
+    console.log(`[Sync] ✓ 完成 总耗时=${totalMs}ms (S1=${s1Ms}ms S2=${s2Ms}ms S3=${s3Ms}ms)`);
 
-    // ── 写入 Wiki 变更日志（sync history）──
-    const syncEntry = {
+    // 写入 sync history
+    await appendSyncHistory(id, {
       timestamp: new Date().toISOString(),
       trigger: req.body?.trigger || 'manual',
+      logIds: unsyncedLogs.map(l => l.id),
       logsProcessed: unsyncedLogs.length,
       factsExtracted: facts.length,
       updatedFiles: Object.keys(updatedWiki),
       timingMs: { total: totalMs, stage1: s1Ms, stage2: s2Ms, stage3: s3Ms }
-    };
-    appendSyncHistory(id, syncEntry);
+    });
 
     res.json({
       message: 'Wiki 同步更新成功！',
@@ -1003,30 +915,27 @@ ${formattedFactsForLLM}
       updatedFiles: Object.keys(updatedWiki),
       timing_ms: { total: totalMs, stage1: s1Ms, stage2: s2Ms, stage3: s3Ms }
     });
-
   } catch (err) {
-    console.error('多阶段同步失败:', err);
-    res.status(500).json({ error: '同步过程中处理多阶段 AI Pipeline 失败: ' + err.message });
+    console.error('[POST /clients/:id/sync] 失败:', err);
+    res.status(500).json({ error: '同步失败: ' + err.message });
   }
 });
 
-// ─── Wiki 变更日志（Sync History）────────────────────────────────────
-// GET /api/clients/:id/sync-history
-// 返回最近 N 条 sync 记录，按时间倒序排列
-app.get('/api/clients/:id/sync-history', (req, res) => {
-  const { id } = req.params;
-  const clients = readClients();
-  if (!clients.find(c => c.id === id)) return res.status(404).json({ error: '客户不存在' });
-
-  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-  const history = readSyncHistory(id).slice(0, limit);
-  res.json(history);
+// 10. Sync History
+app.get('/api/clients/:id/sync-history', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!await findClient(id)) return res.status(404).json({ error: '客户不存在' });
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const history = (await readSyncHistory(id)).slice(0, limit);
+    res.json(history);
+  } catch (err) {
+    console.error('[GET /clients/:id/sync-history]', err);
+    res.status(500).json({ error: '获取同步历史失败: ' + err.message });
+  }
 });
 
 // ─── 多模态图片上传 → OCR → 写入日志 ────────────────────────────────
-// POST /api/clients/:id/upload-image
-// body: { image_base64: "data:image/jpeg;base64,...", image_url: "https://...", document_type: "化验单" }
-// 调用多模态模型严格提取医疗信息，写入 type=ocr 的日志
 const MULTIMODAL_SYSTEM = `你是一个专业的医疗单据识别助手。
 你的任务是从医疗图片中精确提取结构化的临床信息。
 
@@ -1039,81 +948,53 @@ const MULTIMODAL_SYSTEM = `你是一个专业的医疗单据识别助手。
 6. 日期格式统一为 YYYY-MM-DD，无法识别时返回 null。
 7. 只输出合法的 JSON，不包含任何 Markdown 代码块或解释性文字。`;
 
-const MULTIMODAL_PROMPT = (docType) => `请识别这张医疗图片（类型：${docType || '未知'}），严格按照以下 JSON 格式输出，不要有任何字段缺失或格式变化：
+const MULTIMODAL_PROMPT = (docType) => `请识别这张医疗图片（类型：${docType || '未知'}），严格按以下 JSON 格式输出：
 
 {
-  "document_type": "识别到的文件类型，如：化验单 | 出院小结 | 检查报告 | 处方单 | 诊断证明 | 其他",
-  "exam_date": "检查或就诊日期，格式 YYYY-MM-DD，无法识别返回 null",
-  "diagnoses": ["疾病名称1", "疾病名称2"],
-  "lab_results": [
-    { "item": "检测项目名称", "value": "数值+单位", "reference": "参考范围或null", "flag": "正常|偏高|偏低|null" }
-  ],
-  "vital_signs": [
-    { "item": "指标名称如血压/心率/体温", "value": "数值+单位", "flag": "正常|偏高|偏低|null" }
-  ],
-  "medications": [
-    { "name": "药品名称", "dose": "剂量", "frequency": "频次" }
-  ],
-  "clinical_summary": "用一句客观描述图片核心内容，不含诊断判断，最多100字。若图片不清晰则写「图片内容无法识别」",
+  "document_type": "识别到的文件类型",
+  "exam_date": "YYYY-MM-DD 或 null",
+  "diagnoses": [],
+  "lab_results": [{ "item": "", "value": "", "reference": null, "flag": null }],
+  "vital_signs": [{ "item": "", "value": "", "flag": null }],
+  "medications": [{ "name": "", "dose": "", "frequency": "" }],
+  "clinical_summary": "最多100字的客观描述",
   "is_duplicate": false,
   "cannot_recognize": false
-}
-
-注意：
-- lab_results 和 vital_signs 中，每一项必须有实际数值才能列入，不能列入"未见异常"等无数值的描述项。
-- diagnoses 只填写图片中明确写明的诊断，不要根据化验值推断疾病。
-- 如果图片根本无法识别（模糊、非医疗文件），将 cannot_recognize 设为 true，其余字段设为 null 或 []。`;
+}`;
 
 app.post('/api/clients/:id/upload-image', async (req, res) => {
-  const { id } = req.params;
-  const clients = readClients();
-  const clientIndex = clients.findIndex(c => c.id === id);
-  if (clientIndex === -1) return res.status(404).json({ error: '客户不存在' });
-
-  const { image_base64, image_url, document_type } = req.body;
-  if (!image_base64 && !image_url) {
-    return res.status(400).json({ error: '必须提供 image_base64 或 image_url' });
-  }
-
   try {
-    // 构建 messages（支持 base64 和 URL 两种方式）
+    const { id } = req.params;
+    const client = await findClient(id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
+
+    const { image_base64, image_url, document_type } = req.body;
+    if (!image_base64 && !image_url)
+      return res.status(400).json({ error: '必须提供 image_base64 或 image_url' });
+
     const imageContent = image_base64
-      ? { type: 'image_url', image_url: { url: image_base64 } }  // data:image/jpeg;base64,...
+      ? { type: 'image_url', image_url: { url: image_base64 } }
       : { type: 'image_url', image_url: { url: image_url } };
 
     const response = await getOpenAI().chat.completions.create({
       model: process.env.VISION_MODEL || process.env.SYNC_MODEL || 'gemini-3.6-flash',
       messages: [
         { role: 'system', content: MULTIMODAL_SYSTEM },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: MULTIMODAL_PROMPT(document_type) },
-            imageContent
-          ]
-        }
+        { role: 'user', content: [{ type: 'text', text: MULTIMODAL_PROMPT(document_type) }, imageContent] }
       ],
-      temperature: 0.05,   // 极低温度，减少随机性
+      temperature: 0.05,
       max_tokens: 1500,
     });
 
     const rawContent = response.choices[0]?.message?.content || '{}';
     let ocrResult;
-    try {
-      ocrResult = robustParseJson(rawContent);
-    } catch (e) {
-      console.error('[upload-image] OCR 解析失败:', rawContent);
-      return res.status(500).json({ error: 'OCR 结果解析失败: ' + e.message });
-    }
+    try { ocrResult = robustParseJson(rawContent); }
+    catch (e) { return res.status(500).json({ error: 'OCR 结果解析失败: ' + e.message }); }
 
-    // 如果图片无法识别
-    if (ocrResult.cannot_recognize) {
+    if (ocrResult.cannot_recognize)
       return res.status(422).json({ error: '图片无法识别（模糊或非医疗文件）', ocrResult });
-    }
 
-    // 将 OCR 结构化结果序列化为可读的日志内容
-    const logLines = [];
-    logLines.push(`【医疗单据识别】文件类型：${ocrResult.document_type || '未知'}`);
+    const logLines = [`【医疗单据识别】文件类型：${ocrResult.document_type || '未知'}`];
     if (ocrResult.exam_date) logLines.push(`检查日期：${ocrResult.exam_date}`);
     if (ocrResult.diagnoses?.length) logLines.push(`诊断记录：${ocrResult.diagnoses.join('、')}`);
     if (ocrResult.vital_signs?.length) {
@@ -1132,29 +1013,19 @@ app.post('/api/clients/:id/upload-image', async (req, res) => {
 
     const logContent = logLines.join('\n');
     const logTitle = `${ocrResult.document_type || '医疗单据'}（${ocrResult.exam_date || '日期未知'}）`;
-
-    // 写入日志
     const logId = `log_${Date.now()}`;
-    const logs = readLogs(id);
-    logs.push({ id: logId, type: 'ocr', title: logTitle, content: logContent, timestamp: new Date().toISOString(), synced: false });
-    writeLogs(id, logs);
 
+    await appendLog(id, { id: logId, type: 'ocr', title: logTitle, content: logContent, created_at: Date.now() });
     console.log(`[upload-image] ✓ 客户 ${id} OCR 日志写入成功 (${logId})`);
-    res.status(201).json({
-      message: '图片识别成功，已写入日志',
-      logId,
-      ocrResult,
-      logContent
-    });
 
+    res.status(201).json({ message: '图片识别成功，已写入日志', logId, ocrResult, logContent });
   } catch (err) {
     console.error('[upload-image] 错误:', err);
     res.status(500).json({ error: '图片识别失败: ' + err.message });
   }
 });
 
-// 3. 通用划词 AI 解读接口
-
+// 通用划词 AI 解读接口
 app.post('/api/chat', async (req, res) => {
   const { action, text, context } = req.body;
   if (!text) return res.status(400).json({ error: '缺少待解析的文本' });
@@ -1167,10 +1038,7 @@ app.post('/api/chat', async (req, res) => {
   } else {
     prompt = `针对文本 "${text}" 进行健康或用药咨询：请用简单易懂的语言解答，并在150字以内完成。`;
   }
-
-  if (context) {
-    prompt += `\n\n上下文背景参考：\n${context}`;
-  }
+  if (context) prompt += `\n\n上下文背景参考：\n${context}`;
 
   try {
     const response = await getOpenAI().chat.completions.create({
@@ -1181,22 +1049,27 @@ app.post('/api/chat', async (req, res) => {
       ],
       temperature: 0.3
     });
-    const reply = response.choices[0]?.message?.content || '无回答';
-    res.json({ reply: reply.trim() });
+    res.json({ reply: (response.choices[0]?.message?.content || '无回答').trim() });
   } catch (err) {
-    console.error('划词 AI 解析失败:', err);
+    console.error('[api/chat] 错误:', err);
     res.status(500).json({ error: 'AI 解析失败: ' + err.message });
   }
 });
-// SPA fallback：所有非 /api/* 路由返回前端 index.html
-// Express 5 要求通配符必须命名，用 /{*path} 而非 *
+
+// SPA fallback
 if (fs.existsSync(DIST_DIR)) {
   app.get('/{*path}', (req, res) => {
     res.sendFile(path.join(DIST_DIR, 'index.html'));
   });
 }
 
-// 启动服务器
+// ── 启动时验证 DB 连接 ──
+pool.query('SELECT 1').then(() => {
+  console.log('[DB] ✓ Supabase 连接成功（llmwiki schema）');
+}).catch(err => {
+  console.error('[DB] ✗ 数据库连接失败:', err.message);
+});
+
 app.listen(PORT, () => {
   console.log(`LLM Wiki 后端服务运行在端口 ${PORT}`);
 });
