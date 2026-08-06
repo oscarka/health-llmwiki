@@ -1030,19 +1030,31 @@ const MULTIMODAL_SYSTEM = `你是一个专业的医疗单据识别助手。
 6. 日期格式统一为 YYYY-MM-DD，无法识别时返回 null。
 7. 只输出合法的 JSON，不包含任何 Markdown 代码块或解释性文字。`;
 
-const MULTIMODAL_PROMPT = (docType) => `请识别这张医疗图片（类型：${docType || '未知'}），严格按以下 JSON 格式输出：
+const MULTIMODAL_PROMPT = (docType) => `请识别这张医疗图片（类型：${docType || '未知'}），严格按照以下 JSON 格式输出，不要有任何字段缺失或格式变化：
 
 {
-  "document_type": "识别到的文件类型",
-  "exam_date": "YYYY-MM-DD 或 null",
-  "diagnoses": [],
-  "lab_results": [{ "item": "", "value": "", "reference": null, "flag": null }],
-  "vital_signs": [{ "item": "", "value": "", "flag": null }],
-  "medications": [{ "name": "", "dose": "", "frequency": "" }],
-  "clinical_summary": "最多100字的客观描述",
+  "document_type": "识别到的文件类型，如：化验单 | 出院小结 | 检查报告 | 处方单 | 诊断证明 | 其他",
+  "exam_date": "检查或就诊日期，格式 YYYY-MM-DD，无法识别返回 null",
+  "diagnoses": ["疾病名称1", "疾病名称2"],
+  "lab_results": [
+    { "item": "检测项目名称", "value": "数值+单位", "reference": "参考范围或null", "flag": "正常|偏高|偏低|null" }
+  ],
+  "vital_signs": [
+    { "item": "指标名称如血压/心率/体温", "value": "数值+单位", "flag": "正常|偏高|偏低|null" }
+  ],
+  "medications": [
+    { "name": "药品名称", "dose": "剂量", "frequency": "频次" }
+  ],
+  "clinical_summary": "用一句客观描述图片核心内容，不含诊断判断，最多100字。若图片不清晰则写「图片内容无法识别」",
   "is_duplicate": false,
   "cannot_recognize": false
-}`;
+}
+
+注意：
+- lab_results 和 vital_signs 中，每一项必须有实际数值才能列入，不能列入"未见异常"等无数值的描述项。
+- diagnoses 只填写图片中明确写明的诊断，不要根据化验值推断疾病。
+- 如果图片根本无法识别（模糊、非医疗文件），将 cannot_recognize 设为 true，其余字段设为 null 或 []。`;
+
 
 app.post('/api/clients/:id/upload-image', async (req, res) => {
   try {
