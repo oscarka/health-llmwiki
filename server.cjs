@@ -304,6 +304,19 @@ const createDefaultWiki = (client) => {
 
 // ──────────────────── 辅助：context-inject 注入逻辑 ────────────────────
 
+// 判断 user_profile.md 是否有真实内容（排除纯模板占位符）
+const hasMeaningfulProfileContent = (profile) => {
+  if (!profile) return false;
+  // 去除 HTML 注释、「暂无记录」、空行、标题行（# 开头）
+  const stripped = profile
+    .replace(/<!--[\s\S]*?-->/g, '')   // 去除 HTML 注释
+    .replace(/^#+\s.*$/gm, '')         // 去除 Markdown 标题
+    .replace(/^暂无记录。?$/gm, '')    // 去除占位文字
+    .replace(/\s+/g, ' ')              // 折叠空白
+    .trim();
+  return stripped.length > 20;         // 超过20字视为有实质内容
+};
+
 const estimateTokens = (text) => {
   if (!text) return 0;
   const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
@@ -545,7 +558,9 @@ app.get('/api/clients/:id/context-inject', async (req, res) => {
     if (!client) return res.status(404).json({ error: '客户不存在' });
 
     const wikiPages = await readWikiPages(id);
-    const userProfile = wikiPages['user_profile.md'] || '';
+    const rawProfile = wikiPages['user_profile.md'] || '';
+    // 只在有实质内容时才传出 user_profile，避免把空模板（HTML注释+暂无记录）传给 AI
+    const userProfile = hasMeaningfulProfileContent(rawProfile) ? rawProfile : '';
 
     if (!client.lastSyncAt) {
       const brief = client.allergies ? `⚠️ 过敏史：${client.allergies}` : '';
