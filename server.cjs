@@ -189,8 +189,6 @@ const createDefaultWiki = (client) => {
   const genderStr = client.gender || '未知性别';
   return {
     'index.md': `# 客户健康首页：${client.name}
-> [!IMPORTANT]
-> **红线警示（过敏史/慢性病）**：${client.allergies || '无登记'}
 
 ## 1. 当前主要关注 (Current Key Concerns)
 *(此处由 AI 自动汇总最近最需要关注的健康信号，无原始记录时请手动录入)*
