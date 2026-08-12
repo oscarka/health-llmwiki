@@ -26,10 +26,15 @@ const DATABASE_URL =
   'postgresql://postgres:lnZbMyimxpMYgUp5@db.feaeonavsqzewadgoqeh.supabase.co:5432/postgres';
 
 const pool = new Pool({
-  connectionString: DATABASE_URL,
+  // gssencmode=disable: 禁用 Kerberos/GSSAPI 探测，Cloud Run→Supabase 连接从 ~5s 降到 ~1s
+  connectionString: DATABASE_URL.includes('?')
+    ? DATABASE_URL + '&gssencmode=disable'
+    : DATABASE_URL + '?gssencmode=disable',
   ssl: DATABASE_URL.includes('supabase.co') ? { rejectUnauthorized: false } : false,
   max: 10,
-  idleTimeoutMillis: 30000,
+  idleTimeoutMillis: 60000,   // 60s 保持连接温热
+  keepAlive: true,
+  connectionTimeoutMillis: 5000,
 });
 
 pool.on('error', (err) => console.error('[DB] Pool error:', err.message));
@@ -534,6 +539,47 @@ app.delete('/api/clients/:id', async (req, res) => {
   }
 });
 
+// 5-pre. 问卷预填：返回结构化档案字段（供 H5 表单预填使用）
+app.get('/api/clients/:id/profile-fields', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = await findClient(id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
+
+    // 基础 DB 字段（直接可用）
+    const fields = {
+      name:      client.name  || '',
+      age:       client.age   ? String(client.age) : '',
+      gender:    client.gender || '',
+      phone:     client.phone  || '',
+      allergies: client.allergies || '',
+    };
+
+    // 从 user_profile.md 提取更多字段（简单 markdown 正则匹配）
+    try {
+      const wikiPages = await readWikiPages(id);
+      const profileMd = wikiPages['user_profile.md'] || wikiPages['index.md'] || '';
+      // 匹配 "- 键：值" 或 "**键**：值" 格式
+      const lines = profileMd.split('\n');
+      for (const line of lines) {
+        const m = line.match(/^[-*]\s*\**([^*：:]+)\**[：:]\s*(.+)/);
+        if (m) {
+          const key = m[1].trim();
+          const val = m[2].trim().replace(/\[🔗.*?\]\(.*?\)/g, '').trim(); // 去除溯源标签
+          if (val && val !== '暂无' && val !== '（待补充）') {
+            fields[key] = val;
+          }
+        }
+      }
+    } catch { /* wiki 读取失败不影响基础字段 */ }
+
+    res.json({ fields, has_profile: !!client.lastSyncAt });
+  } catch (err) {
+    console.error('[GET /clients/:id/profile-fields]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 5. 获取客户 Wiki 的所有页面
 app.get('/api/clients/:id/wiki', async (req, res) => {
   try {
@@ -634,7 +680,7 @@ app.post('/api/clients/:id/logs', async (req, res) => {
     const { type, content, title } = req.body;
     if (!type || !content) return res.status(400).json({ error: '类型和内容为必填项' });
 
-    const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr'];
+    const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr', 'intake_form', 'ai_report'];
     if (!VALID_LOG_TYPES.includes(type))
       return res.status(400).json({ error: `日志类型无效，必须是以下之一: ${VALID_LOG_TYPES.join(', ')}` });
 
@@ -644,7 +690,14 @@ app.post('/api/clients/:id/logs', async (req, res) => {
     const newLog = {
       id: `log_${Date.now()}_${randomSuffix}`,
       type,
-      title: title || `${type === 'phone' ? '电话问诊' : type === 'video' ? '视频问诊' : type === 'wechat' ? '企微记录' : '单证OCR'} (${new Date().toLocaleDateString()})`,
+      title: title || `${
+        type === 'phone'       ? '电话问诊' :
+        type === 'video'       ? '视频问诊' :
+        type === 'wechat'      ? '企微记录' :
+        type === 'ocr'         ? '单证OCR' :
+        type === 'intake_form' ? '健康问卷' :
+        type === 'ai_report'   ? 'AI分析报告' : type
+      } (${new Date().toLocaleDateString()})`,
       content,
       created_at: Date.now(),
     };
@@ -668,7 +721,7 @@ app.post('/api/clients/:id/logs/batch', async (req, res) => {
 
     if (!await findClient(id)) return res.status(404).json({ error: '客户不存在' });
 
-    const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr'];
+    const VALID_LOG_TYPES = ['phone', 'video', 'wechat', 'ocr', 'intake_form', 'ai_report'];
     const insertedIds = [];
     const errors = [];
 

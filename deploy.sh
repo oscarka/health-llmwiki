@@ -32,16 +32,16 @@ echo "✓ 前端构建完成"
 echo ""
 echo "▶ 读取 .env 环境变量..."
 if [ -f .env ]; then
-  ARK_API_KEY=$(grep '^ARK_API_KEY=' .env | cut -d'=' -f2-)
-  ARK_MODEL=$(grep '^ARK_MODEL=' .env | cut -d'=' -f2-)
-  ARK_BASE_URL=$(grep '^ARK_BASE_URL=' .env | cut -d'=' -f2-)
-  GEMINI_API_KEY=$(grep '^GEMINI_API_KEY=' .env | cut -d'=' -f2-)
-  SYNC_MODEL=$(grep '^SYNC_MODEL=' .env | cut -d'=' -f2-)
+  ARK_API_KEY=$(grep '^ARK_API_KEY=' .env | cut -d'=' -f2- || true)
+  ARK_MODEL=$(grep '^ARK_MODEL=' .env | cut -d'=' -f2- || true)
+  ARK_BASE_URL=$(grep '^ARK_BASE_URL=' .env | cut -d'=' -f2- || true)
+  GEMINI_API_KEY=$(grep '^GEMINI_API_KEY=' .env | cut -d'=' -f2- || true)
+  SYNC_MODEL=$(grep '^SYNC_MODEL=' .env | cut -d'=' -f2- || true)
   echo "✓ ARK_API_KEY=${ARK_API_KEY:0:10}..."
   echo "✓ ARK_MODEL=${ARK_MODEL}"
   if [ -n "$GEMINI_API_KEY" ]; then
     echo "✓ GEMINI_API_KEY=${GEMINI_API_KEY:0:10}... (Sync 将使用 Gemini)"
-    echo "✓ SYNC_MODEL=${SYNC_MODEL:-gemini-3.6-flash}"
+    echo "✓ SYNC_MODEL=${SYNC_MODEL:-deepseek-v4-flash-ga-260731}"
   fi
 else
   echo "⚠ 未找到 .env 文件，将不设置环境变量"
@@ -50,6 +50,17 @@ fi
 # 4. 部署到 Cloud Run
 echo ""
 echo "▶ 部署到 Cloud Run..."
+
+# 动态构造 env vars（避免传入空的 GEMINI_API_KEY 导致格式问题）
+ENV_VARS="NODE_ENV=production"
+ENV_VARS="${ENV_VARS},ARK_API_KEY=${ARK_API_KEY:-}"
+ENV_VARS="${ENV_VARS},ARK_MODEL=${ARK_MODEL:-deepseek-v4-flash-ga-260731}"
+ENV_VARS="${ENV_VARS},ARK_BASE_URL=${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
+ENV_VARS="${ENV_VARS},SYNC_MODEL=${SYNC_MODEL:-deepseek-v4-flash-ga-260731}"
+if [ -n "${GEMINI_API_KEY:-}" ]; then
+  ENV_VARS="${ENV_VARS},GEMINI_API_KEY=${GEMINI_API_KEY}"
+fi
+
 gcloud run deploy "${SERVICE}" \
   --source . \
   --region "${REGION}" \
@@ -57,7 +68,7 @@ gcloud run deploy "${SERVICE}" \
   --allow-unauthenticated \
   --min-instances=1 \
   --max-instances=1 \
-  --set-env-vars="NODE_ENV=production,ARK_API_KEY=${ARK_API_KEY:-},ARK_MODEL=${ARK_MODEL:-doubao-seed-1-6-flash-250828},ARK_BASE_URL=${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3},GEMINI_API_KEY=${GEMINI_API_KEY:-},SYNC_MODEL=${SYNC_MODEL:-gemini-3.6-flash}" \
+  --set-env-vars="${ENV_VARS}" \
   --set-secrets="DATABASE_URL=skill-platform-db-url:latest" \
   --quiet
 
