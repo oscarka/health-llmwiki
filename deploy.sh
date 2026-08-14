@@ -68,6 +68,7 @@ gcloud run deploy "${SERVICE}" \
   --allow-unauthenticated \
   --min-instances=1 \
   --max-instances=1 \
+  --timeout=900 \
   --set-env-vars="${ENV_VARS}" \
   --set-secrets="DATABASE_URL=skill-platform-db-url:latest" \
   --quiet

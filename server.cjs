@@ -780,11 +780,19 @@ app.post('/api/clients/:id/sync', async (req, res) => {
     if (!client) return res.status(404).json({ error: '客户不存在' });
 
     const allLogs = await readLogs(id);
-    const unsyncedLogs = allLogs.filter(l => !l.synced);
+    let unsyncedLogs = allLogs.filter(l => !l.synced);
 
     if (unsyncedLogs.length === 0) {
       return res.json({ message: '没有待同步的日志', wikiUpdated: false });
     }
+
+    // 批量限制：优先处理 ai_report，其余最多 maxLogs 条（防止超时）
+    const maxLogs = parseInt(req.query.maxLogs || req.body?.maxLogs || '15', 10);
+    const aiReportLogs = unsyncedLogs.filter(l => l.type === 'ai_report');
+    const otherLogs = unsyncedLogs.filter(l => l.type !== 'ai_report');
+    const batchOther = otherLogs.slice(0, Math.max(0, maxLogs - aiReportLogs.length));
+    unsyncedLogs = [...aiReportLogs, ...batchOther];
+    console.log(`[Sync] 本次处理 ${unsyncedLogs.length} 条（ai_report=${aiReportLogs.length} other=${batchOther.length}），总未同步=${allLogs.filter(l=>!l.synced).length}`);
 
     const currentWiki = await readWikiPages(id);
 
@@ -802,6 +810,7 @@ app.post('/api/clients/:id/sync', async (req, res) => {
    - "functional"：患者活动、睡眠、认知、语言、神志、瘫痪或反射异常等功能状态变化
 2. "intervention"：医疗干预，包括：
    - "treatment"：药物治疗、用药变更、输液、手术等
+   - "nutrition"：营养方案、饮食计划、个性化膳食建议、营养素补充、热量目标等（包括 AI 营养师报告、健康分析报告中的具体干预建议）
    - "pipeline"：留置管道（气管插管、深静脉置管、胃管、尿管等）
    - "protection"：安全约束、防坠床防护等
    - "care"：体位护理、翻身排痰、皮肤护理、饮食限制等
@@ -810,6 +819,8 @@ app.post('/api/clients/:id/sync', async (req, res) => {
    - "background"：个人背景（如"我老公是医生"、"我在北京"、"我是护士"、"我不懂医学"）
    - "taboo"：禁忌内容（如"不要提住院"、"家人不知道病情"、"不要说癌症"）
    - "social"：个人社会属性（如主要照护者是谁、家庭状况、医保情况、经济考量）
+
+💡 特别说明：对于 [类型: ai_report] 类型的记录（如 AI 营养师报告、AI 健康分析报告），请务必提取其中的营养干预建议（intervention:nutrition），包括：每日热量目标、三大营养素比例、蛋白质摄入目标、饮食计划、监测目标等关键内容。每个关键建议拆分为一条独立事实。
 
 新增沟通记录内容如下：
 ${unsyncedLogs.map(log => `
@@ -855,7 +866,7 @@ ${log.content}
 }`;
 
     const stage1Response = await getOpenAI().chat.completions.create({
-      model: process.env.SYNC_MODEL || 'gemini-3.6-flash',
+      model: process.env.SYNC_MODEL || 'deepseek-v4-flash-ga-260731',
       messages: [
         { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. Do not include markdown codeblocks or extra text.' },
         { role: 'user', content: stage1Prompt }
@@ -875,6 +886,13 @@ ${log.content}
 
     const facts = parsedFactsObj.facts || [];
     console.log(`[Stage 1] ✓ 完成 (${Date.now() - s1Start}ms, ${facts.length} 条事实)`);
+
+    // ── 若无事实提取，标记为已同步并跳过 Stage 3 ──
+    if (facts.length === 0) {
+      await markLogsSynced(unsyncedLogs.map(l => l.id));
+      console.log('[Sync] Stage 1 返回 0 条事实，日志已标记同步，无需更新 Wiki');
+      return res.json({ message: '无新事实可合并，日志已标记同步', wikiUpdated: false, durationMs: Date.now() - syncStartTime });
+    }
 
     // ── Stage 2: Heuristic-based Attention Scoring ──
     const s2Start = Date.now();
@@ -939,6 +957,8 @@ ${log.content}
         return `[事实 #${idx}] 类型: observation, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'}, 推荐 Attention Score: ${f.attention_score}`;
       else if (f.type === 'user_profile')
         return `[事实 #${idx}] 类型: user_profile, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'} → 写入 user_profile.md`;
+      else if (f.type === 'intervention' && f.subtype === 'nutrition')
+        return `[事实 #${idx}] 类型: intervention, 子类型: nutrition, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'} → 写入 medication_plan.md 的"当前干预措施"`;
       else
         return `[事实 #${idx}] 类型: intervention, 子类型: ${f.subtype}, 内容: "${f.content}", 溯源ID: ${f.log_id || '无'}`;
     }).join('\n');
@@ -999,7 +1019,7 @@ ${formattedFactsForLLM}
 
 
     const stage3Response = await getOpenAI().chat.completions.create({
-      model: process.env.SYNC_MODEL || 'gemini-3.6-flash',
+      model: process.env.SYNC_MODEL || 'deepseek-v4-flash-ga-260731',
       messages: [
         { role: 'system', content: 'You are a professional assistant that outputs strict JSON only.' },
         { role: 'user', content: stage3Prompt }
@@ -1122,7 +1142,7 @@ app.post('/api/clients/:id/upload-image', async (req, res) => {
       : { type: 'image_url', image_url: { url: image_url } };
 
     const response = await getOpenAI().chat.completions.create({
-      model: process.env.VISION_MODEL || process.env.SYNC_MODEL || 'gemini-3.6-flash',
+      model: process.env.VISION_MODEL || process.env.SYNC_MODEL || 'deepseek-v4-flash-ga-260731',
       messages: [
         { role: 'system', content: MULTIMODAL_SYSTEM },
         { role: 'user', content: [{ type: 'text', text: MULTIMODAL_PROMPT(document_type) }, imageContent] }
@@ -1187,7 +1207,7 @@ app.post('/api/chat', async (req, res) => {
 
   try {
     const response = await getOpenAI().chat.completions.create({
-      model: process.env.SYNC_MODEL || 'gemini-3.6-flash',
+      model: process.env.SYNC_MODEL || 'deepseek-v4-flash-ga-260731',
       messages: [
         { role: 'system', content: '你是一个贴心的健康管理助理，用简明扼要的中文进行回复。' },
         { role: 'user', content: prompt }
