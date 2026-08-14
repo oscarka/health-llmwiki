@@ -872,9 +872,9 @@ ${log.content}
         { role: 'user', content: stage1Prompt }
       ],
       temperature: 0.1,
+      max_tokens: 4096,
       response_format: { type: 'json_object' }
     });
-
     const stage1Content = stage1Response.choices[0]?.message?.content || '{}';
     let parsedFactsObj;
     try {
@@ -1025,9 +1025,9 @@ ${formattedFactsForLLM}
         { role: 'user', content: stage3Prompt }
       ],
       temperature: 0.1,
+      max_tokens: 16384,  // 全量 Wiki 页面输出防截断（当前~1600 tokens，预留 10x 增长空间）
       response_format: { type: 'json_object' }
     });
-
     const stage3Content = stage3Response.choices[0]?.message?.content || '{}';
     let updatedWiki;
     try {
