@@ -14,6 +14,10 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+// ── 通用 Wiki 记忆库 API（Phase 3 — 多 Domain 隔离，不影响现有健康接口）──
+const genericWikiRouter = require('./generic_wiki/apiRoutes.cjs');
+app.use('/api/generic-wiki', genericWikiRouter);
+
 // ──────────────────── 前端静态文件 ────────────────────
 const DIST_DIR = path.join(__dirname, 'dist');
 if (fs.existsSync(DIST_DIR)) {
