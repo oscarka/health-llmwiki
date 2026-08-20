@@ -388,18 +388,26 @@ export default function App() {
     }
   };
 
+  const [syncSeconds, setSyncSeconds] = useState(0);
+
   const handleLlmSync = async () => {
+    let timer = null;
     try {
       setSyncing(true);
+      setSyncSeconds(0);
+      timer = setInterval(() => {
+        setSyncSeconds(s => s + 1);
+      }, 1000);
+
       // 在同步开始前缓存旧页面内容以供对比高亮
       setPrevWikiPages({ ...wikiPages });
       setShowDiff(true);
-      showToast('开始调用豆包大模型，分析增量记录并重构Wiki...', 'info');
+      showToast('🚀 已启动 DeepSeek AI 3阶段同步管线（耗时约 40-70s，请稍候）...', 'info');
       const res = await fetch(`/api/clients/${selectedClientId}/sync`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         if (data.wikiUpdated) {
-          showToast(`豆包大模型同步成功！已重构 Wiki: ${data.updatedFiles.join(', ')}`, 'success');
+          showToast(`✅ DeepSeek 大模型同步完成！已重构 Wiki: ${data.updatedFiles.join(', ')}`, 'success');
         } else {
           showToast(data.message || '没有检测到需要同步的新记录', 'info');
           setShowDiff(false);
@@ -413,6 +421,7 @@ export default function App() {
       showToast('同步网络错误，请检查后端或大模型API Key', 'error');
       setShowDiff(false);
     } finally {
+      if (timer) clearInterval(timer);
       setSyncing(false);
     }
   };
@@ -805,7 +814,9 @@ export default function App() {
                       disabled={syncing}
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: '13px', animation: syncing ? 'spin 1.5s linear infinite' : 'none' }}>sync</span>
-                      {syncing ? '同步中...' : '同步 Wiki'}
+                      {syncing 
+                        ? (syncSeconds < 25 ? `提取事实 (${syncSeconds}s)...` : `重构 Wiki (${syncSeconds}s)...`)
+                        : '同步 Wiki'}
                     </button>
                   </div>
                 </div>

@@ -153,18 +153,50 @@ export default function HealthWikiRenderer({
       extractedName = titleMatch[1].replace(/\[(.*?)\]\(.*?\)/g, '$1').trim();
     }
 
-    // 3. 提取置顶的 AI 导读块 (支持以注释 <!-- SUMMARY_START -->...<!-- SUMMARY_END --> 包裹的区块)
+    // 3. 提取置顶的 AI 导读块 (支持注释、提示框或智能自动提取大纲)
     let extractedSummary = '';
     const summaryCommentMatch = raw.match(/<!--\s*SUMMARY_START\s*-->([\s\S]*?)<!--\s*SUMMARY_END\s*-->/);
     if (summaryCommentMatch) {
       extractedSummary = summaryCommentMatch[1].trim();
-      // 在正文中抹除导读注释，防止二次渲染
       raw = raw.replace(/<!--\s*SUMMARY_START\s*-->[\s\S]*?<!--\s*SUMMARY_END\s*-->/, '');
     } else {
       // 兼容非注释写法，查找首个提示框作为导读
       const noteMatch = raw.match(/>\s*\[!NOTE\]\s*[\n\r](?:>\s*\*\*AI\s*导读\*\*\s*[:：]?\s*[\n\r])?([\s\S]*?)(?=\n\n|\n[^>])/i);
       if (noteMatch) {
         extractedSummary = noteMatch[1].split('\n').map(line => line.replace(/^>\s?/, '')).join('\n').trim();
+      }
+    }
+
+    // 智能回退：若未找到显式导读标记，自动从“红线警示”、“当前主要关注”及“健康主诉”中提取生成精炼导读
+    if (!extractedSummary && isIndexPage) {
+      const summaryItems = [];
+      // 1. 提取红线警示
+      const redlineMatch = raw.match(/>\s*\[!IMPORTANT\]\s*[\n\r]>\s*\*\*红线警示[^*]*\*\*[：:]\s*(.+)/);
+      if (redlineMatch && redlineMatch[1] && !redlineMatch[1].includes('暂无') && !redlineMatch[1].includes('未登记')) {
+        const cleanRedline = redlineMatch[1].replace(/\[🔗\s*溯源\]\([^)]+\)/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1').trim();
+        if (cleanRedline) summaryItems.push(`⚠️ 警示关注：${cleanRedline}`);
+      }
+      // 2. 提取当前主要关注
+      const concernsMatch = raw.match(/##\s*1\.\s*当前主要关注[^\n]*\n([\s\S]*?)(?=\n##|$)/);
+      if (concernsMatch) {
+        const concernBullets = concernsMatch[1]
+          .split('\n')
+          .filter(l => l.trim().startsWith('*') || l.trim().startsWith('-'))
+          .map(l => l.replace(/^[*-\s]+/, '').replace(/\[🔗\s*溯源\]\([^)]+\)/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1').trim())
+          .filter(l => l && !l.includes('暂无关注项') && !l.includes('暂无记录'));
+        if (concernBullets.length > 0) {
+          summaryItems.push(`📌 当前关注：${concernBullets.slice(0, 3).join('；')}`);
+        }
+      }
+      // 3. 提取近期主要健康主诉
+      const chiefComplaintMatch = raw.match(/\*+\s*\*\*近期主要健康主诉\*\*[：:]\s*(.+)/);
+      if (chiefComplaintMatch && chiefComplaintMatch[1] && !chiefComplaintMatch[1].includes('暂无') && !chiefComplaintMatch[1].includes('待大模型')) {
+        const cleanComplaint = chiefComplaintMatch[1].replace(/\[🔗\s*溯源\]\([^)]+\)/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1').trim();
+        if (cleanComplaint) summaryItems.push(`🩺 近期主诉：${cleanComplaint}`);
+      }
+
+      if (summaryItems.length > 0) {
+        extractedSummary = summaryItems.join('\n');
       }
     }
 

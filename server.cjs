@@ -764,7 +764,8 @@ function getOpenAI() {
     const baseURL = process.env.GEMINI_API_KEY
       ? 'https://generativelanguage.googleapis.com/v1beta/openai/'
       : (process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3');
-    console.log(`[LLM] 使用 ${process.env.GEMINI_API_KEY ? 'Gemini' : 'Doubao'} baseURL=${baseURL}`);
+    const modelName = process.env.SYNC_MODEL || process.env.ARK_MODEL || 'deepseek-v4-flash-ga-260731';
+    console.log(`[LLM] 使用 ${process.env.GEMINI_API_KEY ? 'Gemini' : modelName} baseURL=${baseURL}`);
     _openaiClient = new OpenAI({ apiKey, baseURL });
   }
   return _openaiClient;
@@ -1009,7 +1010,11 @@ ${formattedFactsForLLM}
      \`\`\`
 4. **AI 安全红线**：严禁包含以下诊断性或恐慌性词语：\`AI确诊\`、\`AI诊断为\`、\`人工智能诊断\`、\`confirmed by AI\`、\`AI confirms\`、\`危及生命\`、\`life-threatening\`、\`AI判断\`。仅客观记录观察，禁止越权诊断！
 5. **用户画像信息（user_profile 类型事实）**：如果新增事实中包含 type: "user_profile" 的条目，请将其内容写入 \`user_profile.md\` 对应的章节（基本背景、沟通偏好、必须注意事项、个人与社会属性）。用普通 Markdown 文字写入，不使用 block 格式。如果某个章节已经有内容，将新信息追加到已有内容后面。
-6. **输出格式**：请直接输出一个合法的 JSON 对象，只需要包含【被更新或修改的文件】作为 Key（例如只包含 "medical_history.md" 和 "index.md"，未被修改的文件不需要包含在 JSON 中，以节省 Token 并防止截断），Value 是该文件更新后的完整 Markdown 内容。请确保输出是一个严格合法的 JSON 对象，不要包含任何 Markdown 格式包裹（如 \`\`\`json ），不要有任何解释性前缀或后缀。
+6. **首页 AI 导读块**：如果更新了 \`index.md\`，请务必在 \`# 客户健康首页\` 大标题正下方输出 1-3 句精炼的导读大纲：
+   <!-- SUMMARY_START -->
+   患者主要健康状况简述与近期重点关注事项摘要...
+   <!-- SUMMARY_END -->
+7. **输出格式**：请直接输出一个合法的 JSON 对象，只需要包含【被更新或修改的文件】作为 Key（例如只包含 "medical_history.md" 和 "index.md"，未被修改的文件不需要包含在 JSON 中，以节省 Token 并防止截断），Value 是该文件更新后的完整 Markdown 内容。请确保输出是一个严格合法的 JSON 对象，不要包含任何 Markdown 格式包裹（如 \`\`\`json ），不要有任何解释性前缀或后缀。
 
 示例输出格式:
 {
