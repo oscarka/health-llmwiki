@@ -57,7 +57,8 @@ const readClients = async () => {
   const res = await db.query(
     `SELECT id, name, age, gender, phone, allergies,
             created_at AS "createdAt", last_sync_at AS "lastSyncAt"
-     FROM llmwiki.clients ORDER BY created_at DESC`,
+     FROM llmwiki.clients 
+     ORDER BY last_sync_at DESC NULLS LAST, created_at DESC`,
     []
   );
   return res.rows;

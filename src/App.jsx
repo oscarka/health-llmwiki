@@ -643,7 +643,16 @@ export default function App() {
                           {client.gender} | {client.age ? `${client.age}岁` : '未知'}
                         </span>
                       </div>
-                      <div className="client-phone" style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>{client.phone || '无电话'}</div>
+                      <div className="client-phone" style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{client.phone ? `📞 ${client.phone}` : '无电话'}</span>
+                        {client.lastSyncAt ? (
+                          <span style={{ fontSize: '10px', color: '#059669', background: 'rgba(5,150,105,0.08)', padding: '1px 5px', borderRadius: '4px' }}>
+                            ⚡ {new Date(client.lastSyncAt).getMonth() + 1}-{new Date(client.lastSyncAt).getDate()}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '10px', color: '#9ca3af' }}>未同步</span>
+                        )}
+                      </div>
                     </div>
                     {/* 未同步提示红点 */}
                     {client.id === selectedClientId ? (
