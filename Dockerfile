@@ -23,7 +23,9 @@ RUN npm ci --omit=dev
 
 # 复制后端所需文件
 COPY server.cjs ./
+COPY generic_wiki/ ./generic_wiki/
 COPY scripts/ ./scripts/
+
 
 # 从 build stage 复制前端产物
 COPY --from=frontend-builder /app/dist ./dist
