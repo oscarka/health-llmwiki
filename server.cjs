@@ -94,13 +94,20 @@ const updateClientMeta = async (id, fields) => {
   const setClauses = [];
   const vals = [id];
   if (fields.name      !== undefined) { vals.push(fields.name);      setClauses.push(`name=$${vals.length}`); }
-  if (fields.age       !== undefined) { vals.push(fields.age);       setClauses.push(`age=$${vals.length}`); }
-  if (fields.gender    !== undefined) { vals.push(fields.gender);    setClauses.push(`gender=$${vals.length}`); }
-  if (fields.phone     !== undefined) { vals.push(fields.phone);     setClauses.push(`phone=$${vals.length}`); }
-  if (fields.allergies !== undefined) { vals.push(fields.allergies); setClauses.push(`allergies=$${vals.length}`); }
+  // age: 空字符串或 NaN 都存 null
+  if (fields.age !== undefined) {
+    const parsedAge = fields.age === '' || fields.age === null ? null : parseInt(fields.age, 10);
+    vals.push(isNaN(parsedAge) ? null : parsedAge);
+    setClauses.push(`age=$${vals.length}`);
+  }
+  if (fields.gender    !== undefined) { vals.push(fields.gender || null);    setClauses.push(`gender=$${vals.length}`); }
+  if (fields.phone     !== undefined) { vals.push(fields.phone || null);     setClauses.push(`phone=$${vals.length}`); }
+  if (fields.allergies !== undefined) { vals.push(fields.allergies || null); setClauses.push(`allergies=$${vals.length}`); }
   if (fields.lastSyncAt !== undefined) { vals.push(fields.lastSyncAt); setClauses.push(`last_sync_at=$${vals.length}`); }
   if (setClauses.length === 0) return findClient(id);
-  setClauses.push(`updated_at=${Date.now()}`);
+  // updated_at 也参数化，避免直接拼入数字导致类型错误
+  vals.push(new Date().toISOString());
+  setClauses.push(`updated_at=$${vals.length}`);
   const res = await db.query(
     `UPDATE llmwiki.clients SET ${setClauses.join(',')} WHERE id=$1
      RETURNING id, name, age, gender, phone, allergies,

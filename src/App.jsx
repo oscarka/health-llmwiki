@@ -334,14 +334,16 @@ export default function App() {
         body: JSON.stringify(editClientData)
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '保存失败');
       showToast('客户基本信息已更新', 'success');
       setShowEditModal(false);
       setSelectedClient(data);
       fetchClients();
     } catch (err) {
-      showToast('更新客户信息失败', 'error');
+      showToast(`更新客户信息失败: ${err.message}`, 'error');
     }
   };
+
 
   const handleDeleteClient = async () => {
     if (!window.confirm(`确定要彻底删除客户 ${selectedClient.name} 吗？此操作将永久抹除其全部日志和 Wiki 百科！`)) return;
