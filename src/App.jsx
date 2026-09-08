@@ -140,9 +140,67 @@ export default function App() {
     setTimeout(() => setAlert(null), 3500);
   };
 
+  // 全量 Markdown 文本（跨 4 个页面汇总），用于全局生理系统与床位提取
+  const allWikiContent = useMemo(() => {
+    return Object.values(wikiPages).join('\n');
+  }, [wikiPages]);
+
   // 提取生命体征
   const vitals = useMemo(() => {
     return extractVitalSigns(wikiPages);
+  }, [wikiPages]);
+
+  // 动态提取临床科室与床位信息
+  const patientLocation = useMemo(() => {
+    if (!allWikiContent) return null;
+    const match = allWikiContent.match(/(?:[^\n*#|—。，,]{2,12}?(?:病区|科|ICU)[^\n*#|—。，,]{0,12}?\d+床(?:\s*\([A-Za-z0-9]+\))?)/)
+      || allWikiContent.match(/(?:重症医学科（ICU）|重症医学科|消化内科|骨科脊柱病区|急诊科|小儿外科|儿科)/);
+    return match ? match[0].trim() : null;
+  }, [allWikiContent]);
+
+  // 动态提取护理等级与红线风险标签
+  const clinicalBadges = useMemo(() => {
+    if (!allWikiContent) return [];
+    const badges = [];
+    if (allWikiContent.includes('特级护理')) {
+      badges.push({ text: '特级护理', type: 'danger' });
+    } else if (allWikiContent.includes('一级护理')) {
+      badges.push({ text: '一级特级护理', type: 'danger' });
+    }
+    if (allWikiContent.includes('防跌倒') || allWikiContent.includes('跌倒高危') || allWikiContent.includes('摔伤')) {
+      badges.push({ text: '防跌倒高危', type: 'amber' });
+    }
+    if (allWikiContent.includes('Braden')) {
+      const bradenMatch = allWikiContent.match(/Braden\s*(\d+分(?:\S*)?)/i);
+      badges.push({ text: bradenMatch ? `Braden ${bradenMatch[1]}` : 'Braden 压疮受控', type: 'teal' });
+    }
+    if (allWikiContent.includes('管路') || allWikiContent.includes('胃管') || allWikiContent.includes('气管插管')) {
+      badges.push({ text: '多管路监护', type: 'rose' });
+    }
+    if (allWikiContent.includes('HRV') || allWikiContent.includes('自主神经')) {
+      badges.push({ text: 'HRV重度失调', type: 'indigo' });
+    }
+    if (allWikiContent.includes('术前禁食水')) {
+      badges.push({ text: '术前禁食水', type: 'amber' });
+    }
+    return badges;
+  }, [allWikiContent]);
+
+  // 动态提取 AI 临床核心矛盾 / 摘要
+  const aiCuratedSummary = useMemo(() => {
+    const indexMd = wikiPages['index.md'] || '';
+    const match = indexMd.match(/<!--\s*SUMMARY_START\s*-->([\s\S]*?)<!--\s*SUMMARY_END\s*-->/);
+    if (match && match[1].trim()) {
+      return match[1].trim();
+    }
+    if (indexMd) {
+      const concernMatch = indexMd.match(/##\s*1\.\s*当前主要关注[^\n]*\n([\s\S]*?)(?=\n##|$)/);
+      if (concernMatch) {
+        const clean = concernMatch[1].replace(/[#*`>-]/g, '').trim();
+        if (clean.length > 20) return clean;
+      }
+    }
+    return null;
   }, [wikiPages]);
 
   // ── 初始化与客户端切换 ──
@@ -202,9 +260,17 @@ export default function App() {
       const res = await fetch('/api/clients');
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
-        setClients(data);
-        if (!selectedClientId) {
-          setSelectedClientId(data[0].id);
+        // 确保官方 4 大标准案例置顶排列
+        const sorted = [...data].sort((a, b) => {
+          const aIsCase = a.id && a.id.startsWith('case_combined_');
+          const bIsCase = b.id && b.id.startsWith('case_combined_');
+          if (aIsCase && !bIsCase) return -1;
+          if (!aIsCase && bIsCase) return 1;
+          return 0;
+        });
+        setClients(sorted);
+        if (!selectedClientId || !sorted.some(c => c.id === selectedClientId)) {
+          setSelectedClientId(sorted[0].id);
         }
         return;
       }
@@ -456,21 +522,25 @@ export default function App() {
                 </div>
                 <div className="patient-title-group">
                   <h1>
-                    <span>{selectedClient.name}</span>
+                    <span>{selectedClient.name.split('：')[1] || selectedClient.name}</span>
                     <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-muted)', background: '#f1f5f9', padding: '2px 8px', borderRadius: '6px' }}>
-                      {selectedClient.gender || '未知'} · {selectedClient.age || '—'}岁
+                      {selectedClient.gender || '未知'} · {selectedClient.age ? `${selectedClient.age}岁` : '—'}
                     </span>
-                    <span className="pill-badge danger">一级特级护理</span>
-                    <span className="pill-badge amber">防跌倒高危</span>
-                    <span className="pill-badge teal">Braden 11分受控</span>
+                    {clinicalBadges.map((b, i) => (
+                      <span key={i} className={`pill-badge ${b.type}`}>{b.text}</span>
+                    ))}
                   </h1>
                   <div className="patient-tags-line">
-                    <span>📞 {selectedClient.phone || '130-0000-0001'}</span>
+                    <span>📞 {selectedClient.phone || '暂无电话'}</span>
+                    {patientLocation && (
+                      <>
+                        <span>·</span>
+                        <span>🏥 {patientLocation}</span>
+                      </>
+                    )}
                     <span>·</span>
-                    <span>🏥 骨科脊柱病区一组 18床 (ZH0058921)</span>
-                    <span>·</span>
-                    <span style={{ color: '#e11d48', fontWeight: '600' }}>
-                      ⚠️ {selectedClient.allergies || '无已知药物过敏'}
+                    <span style={{ color: selectedClient.allergies ? '#e11d48' : '#0d9488', fontWeight: '600' }}>
+                      {selectedClient.allergies ? `⚠️ ${selectedClient.allergies}` : '✓ 暂无已知药物过敏登记'}
                     </span>
                   </div>
                 </div>
@@ -483,7 +553,7 @@ export default function App() {
                     <span className="material-symbols-outlined" style={{ color: '#f43f5e', fontSize: '18px' }}>air</span>
                     <div>
                       <div className={`vital-horizon-val ${vitals.spo2.className}`}>{vitals.spo2.value}</div>
-                      <div className="vital-horizon-meta">血氧 (吸氧2L)</div>
+                      <div className="vital-horizon-meta">血氧 (SpO2)</div>
                     </div>
                   </div>
 
@@ -545,9 +615,9 @@ export default function App() {
 
             {/* 双翼驾驶舱核心网格 (左：人体透视投影台，右：Wiki 核心工作台) */}
             <div className="dual-wing-grid">
-              {/* 左翼：高保真人体解剖透视图 */}
+              {/* 左翼：高保真人体解剖透视图 (全动态基于当前病历) */}
               <AnatomicalHealthMap
-                markdownContent={wikiPages[activeWikiPage] || Object.values(wikiPages).join('\n')}
+                markdownContent={allWikiContent}
                 selectedOrgan={selectedOrgan}
                 onSelectOrgan={handleSelectOrgan}
               />
@@ -573,7 +643,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* AI 临床核心矛盾策展盒 (仅在首页展示) */}
+                {/* AI 临床核心矛盾策展盒 (仅在首页展示，动态提取当前患者真实摘要) */}
                 {activeWikiPage === 'index.md' && (
                   <div className="ai-curated-contradiction">
                     <div className="curated-title">
@@ -584,7 +654,11 @@ export default function App() {
                       <span style={{ fontSize: '11px', background: '#ffffff', color: '#0f766e', padding: '2px 8px', borderRadius: '12px', fontWeight: '700' }}>两难协调</span>
                     </div>
                     <div className="curated-p">
-                      患者因慢阻肺咳嗽剧烈导致重心不稳摔伤造成 L2 腰椎骨折。<strong>最关键冲突点在于：慢阻肺剧烈咳嗽引起的胸腹腔高压动荡，会直接造成腰椎骨折断端移位</strong>；但骨折要求绝对制动卧床，又严重阻碍排痰导致坠积性肺炎。临床决策需优先保障镇咳与轻柔双手护腰辅助轴线翻身。
+                      {aiCuratedSummary ? (
+                        aiCuratedSummary
+                      ) : (
+                        <span>录入患者问诊或化验单记录后点击上方「同步 Wiki」，AI 将在此自动萃取临床核心矛盾与两难协调决策。</span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -621,35 +695,45 @@ export default function App() {
         )}
       </main>
 
-      {/* ── 原始证据侧拉抽屉 ── */}
-      <div className={`evidence-drawer-overlay ${tracePanelOpen ? 'open' : ''}`}>
-        <div className="drawer-header">
-          <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
-            原始溯源证据详实记录
+      {/* ── 原始证据侧拉抽屉 (仅在触发溯源且选中日志时渲染，杜绝右上角残留悬浮Bug) ── */}
+      {tracePanelOpen && selectedLogForTrace && (
+        <div className="trace-drawer-backdrop" onClick={() => setTracePanelOpen(false)}>
+          <div className="trace-drawer-panel" onClick={e => e.stopPropagation()}>
+            <div className="drawer-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="material-symbols-outlined" style={{ color: 'var(--teal-primary)' }}>fact_check</span>
+                <span style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                  原始溯源证据详实记录
+                </span>
+              </div>
+              <button className="btn-close-drawer" onClick={() => setTracePanelOpen(false)}>✕</button>
+            </div>
+
+            <div className="drawer-body">
+              <div className="drawer-meta-card">
+                <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a', marginBottom: '6px' }}>
+                  {selectedLogForTrace.title || '无标题记录'}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+                  <span className="badge-log-type">{selectedLogForTrace.type}</span>
+                  <span>ID: {selectedLogForTrace.id}</span>
+                  <span>·</span>
+                  <span>时间: {new Date(selectedLogForTrace.timestamp).toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)' }}>
+                原始记录文本 / 转录原文出处：
+              </div>
+              <div className="drawer-content-box">
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>
+                  {selectedLogForTrace.content}
+                </pre>
+              </div>
+            </div>
           </div>
-          <button className="btn-close-drawer" onClick={() => setTracePanelOpen(false)}>✕</button>
         </div>
-
-        {selectedLogForTrace ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto' }}>
-            <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a', marginBottom: '4px' }}>
-                {selectedLogForTrace.title || '无标题记录'}
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                <span>ID: {selectedLogForTrace.id}</span> · <span>类型: {selectedLogForTrace.type}</span> · <span>时间: {new Date(selectedLogForTrace.timestamp).toLocaleString()}</span>
-              </div>
-            </div>
-
-            <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>原始文字/转录原文：</div>
-            <div style={{ background: '#ffffff', padding: '16px', borderRadius: '14px', border: '1px solid #ccfbf1', borderLeft: '4px solid #0d9488', fontSize: '13px', lineHeight: '1.7', color: '#334155', whiteSpace: 'pre-wrap' }}>
-              {selectedLogForTrace.content}
-            </div>
-          </div>
-        ) : (
-          <div style={{ color: 'var(--text-muted)' }}>暂未选中任何原始记录。</div>
-        )}
-      </div>
+      )}
 
       {/* ── 弹窗 1: 新建客户 ── */}
       {showAddModal && (

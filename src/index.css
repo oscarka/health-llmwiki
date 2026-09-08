@@ -2308,6 +2308,8 @@ textarea {
 .pill-badge.danger { background: var(--rose-bg); color: var(--rose); }
 .pill-badge.amber { background: var(--amber-bg); color: var(--amber); }
 .pill-badge.teal { background: var(--teal-bg); color: var(--teal-primary); }
+.pill-badge.indigo { background: #e0e7ff; color: #4338ca; }
+.pill-badge.rose { background: #ffe4e6; color: #e11d48; }
 
 .header-right-group {
   display: flex;
@@ -2546,4 +2548,106 @@ textarea {
   padding: 10px 12px;
   border-left: 2px solid #cbd5e1;
   font-size: 12.5px;
+}
+
+/* ── 原始证据侧拉抽屉 (Evidence Trace Drawer) ── */
+.trace-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  z-index: 99999;
+  display: flex;
+  justify-content: flex-end;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.trace-drawer-panel {
+  width: 480px;
+  max-width: 90vw;
+  height: 100vh;
+  background: #ffffff;
+  box-shadow: -12px 0 36px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.drawer-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+}
+
+.btn-close-drawer {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-close-drawer:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  transform: scale(1.05);
+}
+
+.drawer-body {
+  padding: 24px;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.drawer-meta-card {
+  background: #f8fafc;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+}
+
+.badge-log-type {
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+
+.drawer-content-box {
+  background: #ffffff;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid #ccfbf1;
+  border-left: 4px solid var(--teal-primary, #0d9488);
+  font-size: 13px;
+  line-height: 1.7;
+  color: #334155;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
 }
