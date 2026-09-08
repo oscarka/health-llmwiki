@@ -24,180 +24,414 @@ if (fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
 }
 
+// ──────────────────── 数据存储路径配置（本地文件兜底与直接访问）────────────────────
+const DATA_DIR = path.join(__dirname, 'data');
+const CLIENTS_FILE = path.join(DATA_DIR, 'clients.json');
+const WIKI_DIR = path.join(DATA_DIR, 'wiki');
+const LOGS_DIR = path.join(DATA_DIR, 'logs');
+const SYNC_HISTORY_DIR = path.join(DATA_DIR, 'sync_history');
+
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(WIKI_DIR)) fs.mkdirSync(WIKI_DIR, { recursive: true });
+if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+if (!fs.existsSync(SYNC_HISTORY_DIR)) fs.mkdirSync(SYNC_HISTORY_DIR, { recursive: true });
+
+// ── 本地文件访问辅助方法 ──
+const readClientsFromFile = () => {
+  try {
+    if (!fs.existsSync(CLIENTS_FILE)) return [];
+    const data = fs.readFileSync(CLIENTS_FILE, 'utf8');
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('[File] readClients error:', err.message);
+    return [];
+  }
+};
+
+const writeClientsToFile = (clients) => {
+  try {
+    fs.writeFileSync(CLIENTS_FILE, JSON.stringify(clients, null, 2));
+  } catch (err) {
+    console.error('[File] writeClients error:', err.message);
+  }
+};
+
+const readWikiPagesFromFile = (clientId) => {
+  const clientWikiDir = path.join(WIKI_DIR, clientId);
+  if (!fs.existsSync(clientWikiDir)) return {};
+  const pages = {};
+  try {
+    const files = fs.readdirSync(clientWikiDir);
+    files.forEach(file => {
+      if (file.endsWith('.md')) {
+        pages[file] = fs.readFileSync(path.join(clientWikiDir, file), 'utf8');
+      }
+    });
+  } catch (err) {
+    console.error('[File] readWikiPages error:', err.message);
+  }
+  return pages;
+};
+
+const writeWikiPagesToFile = (clientId, pages) => {
+  const clientWikiDir = path.join(WIKI_DIR, clientId);
+  if (!fs.existsSync(clientWikiDir)) fs.mkdirSync(clientWikiDir, { recursive: true });
+  Object.entries(pages).forEach(([filename, content]) => {
+    if (filename.endsWith('.md')) {
+      fs.writeFileSync(path.join(clientWikiDir, filename), content, 'utf8');
+    }
+  });
+};
+
+const readLogsFromFile = (clientId) => {
+  const file = path.join(LOGS_DIR, `${clientId}.json`);
+  if (!fs.existsSync(file)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('[File] readLogs error:', err.message);
+    return [];
+  }
+};
+
+const writeLogsToFile = (clientId, logs) => {
+  const file = path.join(LOGS_DIR, `${clientId}.json`);
+  try {
+    fs.writeFileSync(file, JSON.stringify(logs, null, 2));
+  } catch (err) {
+    console.error('[File] writeLogs error:', err.message);
+  }
+};
+
+const readSyncHistoryFromFile = (clientId) => {
+  const file = path.join(SYNC_HISTORY_DIR, `${clientId}.json`);
+  if (!fs.existsSync(file)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    return [];
+  }
+};
+
+const appendSyncHistoryToFile = (clientId, entry) => {
+  const file = path.join(SYNC_HISTORY_DIR, `${clientId}.json`);
+  const history = readSyncHistoryFromFile(clientId);
+  history.unshift(entry);
+  if (history.length > 100) history.length = 100;
+  try {
+    fs.writeFileSync(file, JSON.stringify(history, null, 2));
+  } catch (err) {
+    console.error('[File] appendSyncHistory error:', err.message);
+  }
+};
+
 // ──────────────────── Supabase / PostgreSQL 连接 ────────────────────
 const DATABASE_URL =
   process.env.DATABASE_URL ||
   'postgresql://postgres:lnZbMyimxpMYgUp5@db.feaeonavsqzewadgoqeh.supabase.co:5432/postgres';
 
+let dbAvailable = null; // null: 探测中, true: 正常, false: 离线兜底本地文件
+
 const pool = new Pool({
-  // gssencmode=disable: 禁用 Kerberos/GSSAPI 探测，Cloud Run→Supabase 连接从 ~5s 降到 ~1s
   connectionString: DATABASE_URL.includes('?')
     ? DATABASE_URL + '&gssencmode=disable'
     : DATABASE_URL + '?gssencmode=disable',
   ssl: DATABASE_URL.includes('supabase.co') ? { rejectUnauthorized: false } : false,
   max: 10,
-  idleTimeoutMillis: 60000,   // 60s 保持连接温热
+  idleTimeoutMillis: 60000,
   keepAlive: true,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 1500, // 快速探测，超时即切换本地文件
 });
 
-pool.on('error', (err) => console.error('[DB] Pool error:', err.message));
+pool.on('error', (err) => {
+  if (dbAvailable !== false) {
+    console.warn('[DB] PostgreSQL 连接不可用，已自动切换本地文件存储:', err.message);
+    dbAvailable = false;
+  }
+});
+
+// 快速探测 DB
+pool.query('SELECT 1').then(() => {
+  dbAvailable = true;
+  console.log('[DB] PostgreSQL 连接就绪 (llmwiki schema)');
+}).catch((err) => {
+  dbAvailable = false;
+  console.warn('[DB] PostgreSQL 连接失败，使用本地文件存储 (data/):', err.message);
+});
 
 // ── DB helper（所有 SQL 都在 llmwiki schema）────────────────────────
 const db = {
   query: async (sql, params) => {
+    if (dbAvailable === false) {
+      throw new Error('Database offline, fallback to local storage');
+    }
     const client = await pool.connect();
     try {
-      return await client.query(sql, params);
+      const res = await client.query(sql, params);
+      dbAvailable = true;
+      return res;
+    } catch (err) {
+      dbAvailable = false;
+      throw err;
     } finally {
       client.release();
     }
   },
 };
 
-// ──────────────────── 数据访问层（替代文件读写）────────────────────
+// ──────────────────── 数据访问层（双写 / DB 优先 + 本地文件无缝兜底）────────────────────
 
 const readClients = async () => {
-  const res = await db.query(
-    `SELECT id, name, age, gender, phone, allergies,
-            created_at AS "createdAt", last_sync_at AS "lastSyncAt"
-     FROM llmwiki.clients 
-     ORDER BY last_sync_at DESC NULLS LAST, created_at DESC`,
-    []
-  );
-  return res.rows;
+  try {
+    const res = await db.query(
+      `SELECT id, name, age, gender, phone, allergies,
+              created_at AS "createdAt", last_sync_at AS "lastSyncAt"
+       FROM llmwiki.clients 
+       ORDER BY last_sync_at DESC NULLS LAST, created_at DESC`,
+      []
+    );
+    if (res && res.rows && res.rows.length > 0) {
+      return res.rows;
+    }
+    return readClientsFromFile();
+  } catch (err) {
+    return readClientsFromFile();
+  }
 };
 
 const findClient = async (id) => {
-  const res = await db.query(
-    `SELECT id, name, age, gender, phone, allergies,
-            created_at AS "createdAt", last_sync_at AS "lastSyncAt"
-     FROM llmwiki.clients WHERE id=$1`,
-    [id]
-  );
-  return res.rows[0] || null;
+  try {
+    const res = await db.query(
+      `SELECT id, name, age, gender, phone, allergies,
+              created_at AS "createdAt", last_sync_at AS "lastSyncAt"
+       FROM llmwiki.clients WHERE id=$1`,
+      [id]
+    );
+    if (res && res.rows && res.rows[0]) return res.rows[0];
+  } catch (err) {}
+  const list = readClientsFromFile();
+  return list.find(c => c.id === id) || null;
 };
 
 const createClient = async ({ id, name, age, gender, phone, allergies }) => {
-  const res = await db.query(
-    `INSERT INTO llmwiki.clients (id, name, age, gender, phone, allergies)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (id) DO UPDATE SET id=EXCLUDED.id  -- 幂等：已存在则返回现有行
-     RETURNING id, name, age, gender, phone, allergies,
-               created_at AS "createdAt", last_sync_at AS "lastSyncAt"`,
-    [id, name, age || null, gender || null, phone || null, allergies || null]
-  );
-  return res.rows[0];
+  let created = null;
+  try {
+    const res = await db.query(
+      `INSERT INTO llmwiki.clients (id, name, age, gender, phone, allergies)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (id) DO UPDATE SET id=EXCLUDED.id
+       RETURNING id, name, age, gender, phone, allergies,
+                 created_at AS "createdAt", last_sync_at AS "lastSyncAt"`,
+      [id, name, age || null, gender || null, phone || null, allergies || null]
+    );
+    created = res.rows[0];
+  } catch (err) {}
+
+  const clients = readClientsFromFile();
+  const existingIdx = clients.findIndex(c => c.id === id);
+  const clientObj = created || {
+    id, name, age: age ? parseInt(age) : null,
+    gender: gender || null, phone: phone || null, allergies: allergies || null,
+    createdAt: new Date().toISOString(), lastSyncAt: null
+  };
+  if (existingIdx >= 0) {
+    clients[existingIdx] = { ...clients[existingIdx], ...clientObj };
+  } else {
+    clients.unshift(clientObj);
+  }
+  writeClientsToFile(clients);
+  return clientObj;
 };
 
 const updateClientMeta = async (id, fields) => {
-  const setClauses = [];
-  const vals = [id];
-  if (fields.name      !== undefined) { vals.push(fields.name);      setClauses.push(`name=$${vals.length}`); }
-  // age: 空字符串或 NaN 都存 null
-  if (fields.age !== undefined) {
-    const parsedAge = fields.age === '' || fields.age === null ? null : parseInt(fields.age, 10);
-    vals.push(isNaN(parsedAge) ? null : parsedAge);
-    setClauses.push(`age=$${vals.length}`);
+  let updated = null;
+  try {
+    const setClauses = [];
+    const vals = [id];
+    if (fields.name !== undefined) { vals.push(fields.name); setClauses.push(`name=$${vals.length}`); }
+    if (fields.age !== undefined) {
+      const parsedAge = fields.age === '' || fields.age === null ? null : parseInt(fields.age, 10);
+      vals.push(isNaN(parsedAge) ? null : parsedAge);
+      setClauses.push(`age=$${vals.length}`);
+    }
+    if (fields.gender !== undefined) { vals.push(fields.gender || null); setClauses.push(`gender=$${vals.length}`); }
+    if (fields.phone !== undefined) { vals.push(fields.phone || null); setClauses.push(`phone=$${vals.length}`); }
+    if (fields.allergies !== undefined) { vals.push(fields.allergies || null); setClauses.push(`allergies=$${vals.length}`); }
+    if (fields.lastSyncAt !== undefined) { vals.push(fields.lastSyncAt); setClauses.push(`last_sync_at=$${vals.length}`); }
+    if (setClauses.length > 0) {
+      vals.push(new Date().toISOString());
+      setClauses.push(`updated_at=$${vals.length}`);
+      const res = await db.query(
+        `UPDATE llmwiki.clients SET ${setClauses.join(',')} WHERE id=$1
+         RETURNING id, name, age, gender, phone, allergies,
+                   created_at AS "createdAt", last_sync_at AS "lastSyncAt"`,
+        vals
+      );
+      updated = res.rows[0];
+    }
+  } catch (err) {}
+
+  const clients = readClientsFromFile();
+  const idx = clients.findIndex(c => c.id === id);
+  if (idx >= 0) {
+    clients[idx] = { ...clients[idx], ...fields };
+    writeClientsToFile(clients);
+    return updated || clients[idx];
   }
-  if (fields.gender    !== undefined) { vals.push(fields.gender || null);    setClauses.push(`gender=$${vals.length}`); }
-  if (fields.phone     !== undefined) { vals.push(fields.phone || null);     setClauses.push(`phone=$${vals.length}`); }
-  if (fields.allergies !== undefined) { vals.push(fields.allergies || null); setClauses.push(`allergies=$${vals.length}`); }
-  if (fields.lastSyncAt !== undefined) { vals.push(fields.lastSyncAt); setClauses.push(`last_sync_at=$${vals.length}`); }
-  if (setClauses.length === 0) return findClient(id);
-  // updated_at 也参数化，避免直接拼入数字导致类型错误
-  vals.push(new Date().toISOString());
-  setClauses.push(`updated_at=$${vals.length}`);
-  const res = await db.query(
-    `UPDATE llmwiki.clients SET ${setClauses.join(',')} WHERE id=$1
-     RETURNING id, name, age, gender, phone, allergies,
-               created_at AS "createdAt", last_sync_at AS "lastSyncAt"`,
-    vals
-  );
-  return res.rows[0];
+  return updated || null;
 };
 
 const deleteClientData = async (id) => {
-  // CASCADE 会自动删除 wiki_pages / client_logs / sync_history
-  await db.query('DELETE FROM llmwiki.clients WHERE id=$1', [id]);
+  try {
+    await db.query('DELETE FROM llmwiki.clients WHERE id=$1', [id]);
+  } catch (err) {}
+  const clients = readClientsFromFile().filter(c => c.id !== id);
+  writeClientsToFile(clients);
+  const logFile = path.join(LOGS_DIR, `${id}.json`);
+  if (fs.existsSync(logFile)) fs.unlinkSync(logFile);
+  const clientWikiDir = path.join(WIKI_DIR, id);
+  if (fs.existsSync(clientWikiDir)) fs.rmSync(clientWikiDir, { recursive: true, force: true });
+  const syncFile = path.join(SYNC_HISTORY_DIR, `${id}.json`);
+  if (fs.existsSync(syncFile)) fs.unlinkSync(syncFile);
 };
 
 const readWikiPages = async (clientId) => {
-  const res = await db.query(
-    'SELECT page_name, content FROM llmwiki.wiki_pages WHERE client_id=$1',
-    [clientId]
-  );
-  const pages = {};
-  res.rows.forEach(r => { pages[r.page_name] = r.content; });
-  return pages;
+  try {
+    const res = await db.query(
+      'SELECT page_name, content FROM llmwiki.wiki_pages WHERE client_id=$1',
+      [clientId]
+    );
+    if (res && res.rows && res.rows.length > 0) {
+      const pages = {};
+      res.rows.forEach(r => { pages[r.page_name] = r.content; });
+      return pages;
+    }
+  } catch (err) {}
+  return readWikiPagesFromFile(clientId);
 };
 
 const writeWikiPages = async (clientId, pages) => {
-  for (const [pageName, content] of Object.entries(pages)) {
-    if (!pageName.endsWith('.md')) continue;
-    await db.query(
-      `INSERT INTO llmwiki.wiki_pages (client_id, page_name, content, updated_at)
-       VALUES ($1,$2,$3,$4)
-       ON CONFLICT (client_id, page_name)
-       DO UPDATE SET content=EXCLUDED.content, updated_at=EXCLUDED.updated_at`,
-      [clientId, pageName, content, Date.now()]
-    );
-  }
+  try {
+    for (const [pageName, content] of Object.entries(pages)) {
+      if (!pageName.endsWith('.md')) continue;
+      await db.query(
+        `INSERT INTO llmwiki.wiki_pages (client_id, page_name, content, updated_at)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (client_id, page_name)
+         DO UPDATE SET content=EXCLUDED.content, updated_at=EXCLUDED.updated_at`,
+        [clientId, pageName, content, Date.now()]
+      );
+    }
+  } catch (err) {}
+  writeWikiPagesToFile(clientId, pages);
 };
 
 const readLogs = async (clientId) => {
-  const res = await db.query(
-    `SELECT id, type, title, content, source, synced,
-            created_at AS timestamp
-     FROM llmwiki.client_logs WHERE client_id=$1 ORDER BY created_at ASC`,
-    [clientId]
-  );
-  return res.rows.map(r => ({
-    ...r,
-    timestamp: new Date(Number(r.timestamp)).toISOString(),
-    synced: Boolean(r.synced),
-  }));
+  try {
+    const res = await db.query(
+      `SELECT id, type, title, content, source, synced,
+              created_at AS timestamp
+       FROM llmwiki.client_logs WHERE client_id=$1 ORDER BY created_at ASC`,
+      [clientId]
+    );
+    if (res && res.rows && res.rows.length > 0) {
+      return res.rows.map(r => ({
+        ...r,
+        timestamp: new Date(Number(r.timestamp)).toISOString(),
+        synced: Boolean(r.synced),
+      }));
+    }
+  } catch (err) {}
+  return readLogsFromFile(clientId);
 };
 
 const appendLog = async (clientId, log) => {
-  const res = await db.query(
-    `INSERT INTO llmwiki.client_logs (id, client_id, type, title, content, source, synced, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-     RETURNING id, type, title, content, source, synced, created_at AS timestamp`,
-    [log.id, clientId, log.type, log.title || null, log.content,
-     log.source || null, false, log.created_at || Date.now()]
-  );
-  const r = res.rows[0];
-  return { ...r, timestamp: new Date(Number(r.timestamp)).toISOString(), synced: false };
+  let created = null;
+  try {
+    const res = await db.query(
+      `INSERT INTO llmwiki.client_logs (id, client_id, type, title, content, source, synced, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id, type, title, content, source, synced, created_at AS timestamp`,
+      [log.id, clientId, log.type, log.title || null, log.content,
+       log.source || null, false, log.created_at || Date.now()]
+    );
+    const r = res.rows[0];
+    created = { ...r, timestamp: new Date(Number(r.timestamp)).toISOString(), synced: false };
+  } catch (err) {}
+
+  const fileLog = created || {
+    id: log.id,
+    type: log.type,
+    title: log.title || null,
+    content: log.content,
+    source: log.source || null,
+    synced: false,
+    timestamp: new Date(log.created_at || Date.now()).toISOString()
+  };
+  const logs = readLogsFromFile(clientId);
+  logs.push(fileLog);
+  writeLogsToFile(clientId, logs);
+  return fileLog;
 };
 
 const markLogsSynced = async (logIds) => {
   if (!logIds || logIds.length === 0) return;
-  await db.query(
-    `UPDATE llmwiki.client_logs SET synced=TRUE WHERE id=ANY($1)`,
-    [logIds]
-  );
+  try {
+    await db.query(
+      `UPDATE llmwiki.client_logs SET synced=TRUE WHERE id=ANY($1)`,
+      [logIds]
+    );
+  } catch (err) {}
+  if (fs.existsSync(LOGS_DIR)) {
+    const files = fs.readdirSync(LOGS_DIR);
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const filePath = path.join(LOGS_DIR, file);
+      try {
+        const logs = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        let changed = false;
+        logs.forEach(l => {
+          if (logIds.includes(l.id) && !l.synced) {
+            l.synced = true;
+            changed = true;
+          }
+        });
+        if (changed) fs.writeFileSync(filePath, JSON.stringify(logs, null, 2));
+      } catch {}
+    }
+  }
 };
 
 const readSyncHistory = async (clientId) => {
-  const res = await db.query(
-    `SELECT id, log_ids, summary, created_at
-     FROM llmwiki.sync_history WHERE client_id=$1 ORDER BY created_at DESC LIMIT 100`,
-    [clientId]
-  );
-  return res.rows.map(r => ({
-    ...r,
-    log_ids: r.log_ids ? JSON.parse(r.log_ids) : [],
-    timestamp: new Date(Number(r.created_at)).toISOString(),
-  }));
+  try {
+    const res = await db.query(
+      `SELECT id, log_ids, summary, created_at
+       FROM llmwiki.sync_history WHERE client_id=$1 ORDER BY created_at DESC LIMIT 100`,
+      [clientId]
+    );
+    if (res && res.rows && res.rows.length > 0) {
+      return res.rows.map(r => ({
+        ...r,
+        log_ids: r.log_ids ? JSON.parse(r.log_ids) : [],
+        timestamp: new Date(Number(r.created_at)).toISOString(),
+      }));
+    }
+  } catch (err) {}
+  return readSyncHistoryFromFile(clientId);
 };
 
 const appendSyncHistory = async (clientId, entry) => {
-  await db.query(
-    `INSERT INTO llmwiki.sync_history (client_id, log_ids, summary, created_at)
-     VALUES ($1,$2,$3,$4)`,
-    [clientId, JSON.stringify(entry.logIds || []), JSON.stringify(entry), Date.now()]
-  );
+  try {
+    await db.query(
+      `INSERT INTO llmwiki.sync_history (client_id, log_ids, summary, created_at)
+       VALUES ($1,$2,$3,$4)`,
+      [clientId, JSON.stringify(entry.logIds || []), JSON.stringify(entry), Date.now()]
+    );
+  } catch (err) {}
+  appendSyncHistoryToFile(clientId, entry);
 };
 
 // ──────────────────── 默认 Wiki 模板（PRD 8分区认知骨架）────────────────────

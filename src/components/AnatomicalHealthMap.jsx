@@ -10,7 +10,8 @@ const ORGAN_DEFINITIONS = [
     pctX: 28, pctY: 26,
     color: '#f59e0b',
     keywords: ['肺', '呼吸', '血氧', 'spo2', 'SpO2', '咳嗽', '咳痰', '喘', '吸氧', '雾化', '哮喘', '慢阻肺', '气促'],
-    defaultDesc: '慢阻肺20年 · SpO2 89% 气促'
+    defaultDesc: '慢阻肺20年 · SpO2 89% 气促',
+    statusDesc: '慢阻肺20年 · SpO2 89% 气促'
   },
   {
     id: 'spine',
@@ -19,7 +20,8 @@ const ORGAN_DEFINITIONS = [
     pctX: 74, pctY: 48,
     color: '#f43f5e',
     keywords: ['骨', '脊柱', '椎', '骨折', '腰', '骨质', '股骨', '关节', '髋部', 'L2', '腰椎', '压缩', '摔伤'],
-    defaultDesc: 'L2压缩骨折 · 绝对硬板床制动'
+    defaultDesc: 'L2压缩骨折 · 绝对硬板床制动',
+    statusDesc: 'L2压缩骨折 · 绝对硬板床制动'
   },
   {
     id: 'endocrine',
@@ -28,7 +30,8 @@ const ORGAN_DEFINITIONS = [
     pctX: 22, pctY: 38,
     color: '#10b981',
     keywords: ['血糖', '胰', '糖尿病', '尿糖', '糖化', '二甲双胍', '空腹血糖', '餐后血糖', 'HbA1c', '控糖'],
-    defaultDesc: '4年糖尿病 · 禁食水胰岛素'
+    defaultDesc: '4年糖尿病 · 禁食水胰岛素',
+    statusDesc: '4年糖尿病 · 禁食水胰岛素'
   },
   {
     id: 'skin',
@@ -37,7 +40,8 @@ const ORGAN_DEFINITIONS = [
     pctX: 72, pctY: 58,
     color: '#6366f1',
     keywords: ['压疮', '褥疮', '皮肤', '翻身', '卧床', 'Braden', '气垫床', '受压'],
-    defaultDesc: 'Braden 11分 · 双人轴线翻身'
+    defaultDesc: 'Braden 11分 · 双人轴线翻身',
+    statusDesc: 'Braden 11分 · 双人轴线翻身'
   },
   {
     id: 'brain',
@@ -46,7 +50,8 @@ const ORGAN_DEFINITIONS = [
     pctX: 50, pctY: 8,
     color: '#8b5cf6',
     keywords: ['脑', '意识', '神志', '认知', '昏迷', '嗜睡', '失语', '偏瘫', '肌力', '瞳孔', '头晕', '头痛', '脑出血'],
-    defaultDesc: '神志清楚 · 双下肢肌力正常'
+    defaultDesc: '神志清楚 · 双下肢肌力正常',
+    statusDesc: '神志清楚 · 双下肢肌力正常'
   }
 ];
 
@@ -55,7 +60,14 @@ export default function AnatomicalHealthMap({ markdownContent, selectedOrgan, on
 
   // 根据当前 Markdown 动态扫描匹配受损器官
   const detectedOrgans = useMemo(() => {
-    if (!markdownContent) return ORGAN_DEFINITIONS.slice(0, 4);
+    if (!markdownContent) {
+      return ORGAN_DEFINITIONS.slice(0, 4).map(d => ({
+        ...d,
+        active: true,
+        matchCount: 0,
+        statusDesc: d.defaultDesc || '常规监测'
+      }));
+    }
     const contentLower = markdownContent.toLowerCase();
 
     return ORGAN_DEFINITIONS.map(def => {
@@ -79,7 +91,7 @@ export default function AnatomicalHealthMap({ markdownContent, selectedOrgan, on
         ...def,
         active: matchCount > 0,
         matchCount,
-        statusDesc
+        statusDesc: statusDesc || def.defaultDesc || '指标正常'
       };
     }).filter(d => d.active || ['lung', 'spine', 'endocrine', 'skin'].includes(d.id));
   }, [markdownContent]);
@@ -201,7 +213,7 @@ export default function AnatomicalHealthMap({ markdownContent, selectedOrgan, on
           >
             <div className="mini-pill-name">{organ.icon} {organ.name}</div>
             <div className="mini-pill-status" style={{ color: organ.color }}>
-              {organ.statusDesc.slice(0, 14)}
+              {(organ.statusDesc || organ.defaultDesc || '常规指标').slice(0, 14)}
             </div>
           </div>
         ))}
