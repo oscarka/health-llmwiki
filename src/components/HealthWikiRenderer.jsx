@@ -232,12 +232,12 @@ export default function HealthWikiRenderer({
       }
     }
     
-    // 如果没有二级标题，提供默认脑图框架
+    // 如果没有二级标题，使用空框架（不注入 mock 数据）
     if (tree.branches.length === 0) {
       tree.branches = [
-        { title: '诊断与病史', nodes: ['高血压史', '水肿反应'] },
-        { title: '用药指导', nodes: ['氨氯地平(晨)', '低盐饮食'] },
-        { title: '近期动态', nodes: ['血压回落', '脚踝水肿'] }
+        { title: '健康概况', nodes: [] },
+        { title: '关注事项', nodes: [] },
+        { title: '跟进计划', nodes: [] }
       ];
     }
 
@@ -301,17 +301,17 @@ export default function HealthWikiRenderer({
             }
           }
           const scoreBadgeHtml = score !== null ? `<span class="score-badge ${glowClass}-badge">${badgeText} (${score})</span>` : '';
-          return `<div class="structured-block-card observation-card ${glowClass}-card" style="border-radius: 16px; margin: 16px 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(30, 41, 59, 0.45); transition: all 0.2s ease;">
-            <div class="card-header" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
-              <span class="material-symbols-outlined icon-fill" style="font-size: 16px; color: var(--text-secondary);">visibility</span>
-              <strong class="card-title" style="font-size: 13px; font-weight: 600; color: var(--text-primary);">观察 / ${subtype}</strong>
+          return `<div class="structured-block-card observation-card ${glowClass}-card">
+            <div class="card-header">
+              <span class="material-symbols-outlined icon-fill" style="font-size: 16px; color: var(--teal-primary, #0d9488);">visibility</span>
+              <strong class="card-title">观察 / ${subtype}</strong>
               ${scoreBadgeHtml}
             </div>
-            <div class="card-body" style="padding: 16px; font-size: 13.5px; color: var(--text-primary); line-height: 1.6;">
-              <span class="card-content-text" style="font-weight: 500; display: block; margin-bottom: 10px;">${content}</span>
-              <div class="card-footer-badges" style="display: flex; gap: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.05); padding-top: 8px; align-items: center; flex-wrap: wrap;">
-                <span class="card-origin-badge" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; padding: 2px 8px; font-size: 11px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px;">
-                  <span class="material-symbols-outlined" style="font-size: 12px; color: var(--text-secondary);">database</span>
+            <div class="card-body">
+              <span class="card-content-text">${content}</span>
+              <div class="card-footer-badges">
+                <span class="card-origin-badge">
+                  <span class="material-symbols-outlined" style="font-size: 12px;">database</span>
                   数据证据
                 </span>
                 ${citations}
@@ -319,16 +319,16 @@ export default function HealthWikiRenderer({
             </div>
           </div>`;
         } else {
-          return `<div class="structured-block-card intervention-card" style="border-radius: 16px; margin: 16px 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(30, 41, 59, 0.45); transition: all 0.2s ease;">
-            <div class="card-header" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
-              <span class="material-symbols-outlined icon-fill" style="font-size: 16px; color: var(--text-secondary);">healing</span>
-              <strong class="card-title" style="font-size: 13px; font-weight: 600; color: var(--text-primary);">干预 / ${subtype}</strong>
+          return `<div class="structured-block-card intervention-card">
+            <div class="card-header">
+              <span class="material-symbols-outlined icon-fill" style="font-size: 16px; color: var(--teal-primary, #0d9488);">healing</span>
+              <strong class="card-title">干预 / ${subtype}</strong>
             </div>
-            <div class="card-body" style="padding: 16px; font-size: 13.5px; color: var(--text-primary); line-height: 1.6;">
-              <span class="card-content-text" style="font-weight: 500; display: block; margin-bottom: 10px;">${content}</span>
-              <div class="card-footer-badges" style="display: flex; gap: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.05); padding-top: 8px; align-items: center; flex-wrap: wrap;">
-                <span class="card-origin-badge" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; padding: 2px 8px; font-size: 11px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px;">
-                  <span class="material-symbols-outlined" style="font-size: 12px; color: var(--text-secondary);">medical_services</span>
+            <div class="card-body">
+              <span class="card-content-text">${content}</span>
+              <div class="card-footer-badges">
+                <span class="card-origin-badge">
+                  <span class="material-symbols-outlined" style="font-size: 12px;">medical_services</span>
                   干预治疗
                 </span>
                 ${citations}
@@ -354,8 +354,14 @@ export default function HealthWikiRenderer({
     });
 
     // 6. 自动匹配 [🔗 溯源](log_xxx) 标签并转化为定制 Span 徽章
+    // 注意：先把代码块内容保护起来，不替换 backtick 包裹中的引用格式说明
     // 例如支持 Markdown: [🔗 溯源](log_1779347385975_0)
-    compiledText = compiledText.replace(/\[🔗\s*溯源\]\((.*?)\)/g, (match, logId) => {
+    // 但跳过反引号内的纯说明文字如 `[🔗 溯源](log_id)`
+    compiledText = compiledText.replace(/`[^`]*`|(\[🔗\s*溯源\]\((.*?)\))/g, (match, fullCitation, logId) => {
+      // 如果是反引号包裹的代码段，原样返回
+      if (!fullCitation) return match;
+      // 跳过占位符或无时间戳的非真实 ID（真实 ID 格式：log_数字时间戳_随机码）
+      if (!logId || !/^log_\d{10,}/.test(logId)) return match;
       return `<span class="ref-citation-badge" data-log-id="${logId}">🔗 溯源</span>`;
     });
 

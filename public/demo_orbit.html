@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki · 方案二：全息解剖环形 Bento 岛 (Anatomy Bento Orbit)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <style>
+    :root {
+      --canvas: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(226, 232, 240, 0.8);
+      --card-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+      --card-hover: 0 12px 32px -4px rgba(15, 23, 42, 0.08);
+      --text-main: #0f172a;
+      --text-secondary: #334155;
+      --text-muted: #64748b;
+      --teal-primary: #0d9488;
+      --teal-bg: #f0fdfa;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --rose-bg: #fff1f2;
+      --font-display: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--canvas);
+      color: var(--text-main);
+      font-family: var(--font-display);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* 侧栏 */
+    .bionic-sidebar {
+      width: 260px;
+      background: #ffffff;
+      border-right: 1px solid rgba(0, 0, 0, 0.06);
+      display: flex;
+      flex-direction: column;
+      padding: 20px 14px;
+      gap: 16px;
+    }
+    .brand-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 8px;
+    }
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #14b8a6, #0d9488);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
+    }
+    .brand-title { font-size: 14px; font-weight: 800; letter-spacing: -0.02em; }
+    .brand-badge {
+      font-size: 10px;
+      background: var(--teal-bg);
+      color: var(--teal-primary);
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-weight: 700;
+    }
+    .sidebar-roster {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .roster-item {
+      padding: 12px 14px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+      background: #f8fafc;
+    }
+    .roster-item.active {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.3);
+      box-shadow: 0 4px 16px rgba(13, 148, 136, 0.12);
+    }
+    .roster-name { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 2px; }
+    .roster-sub { font-size: 11px; color: var(--text-muted); display: flex; gap: 6px; }
+
+    /* 主画布 */
+    .bionic-canvas {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      max-width: 1240px;
+      margin: 0 auto;
+    }
+
+    /* 顶部患者全景卡 */
+    .horizon-patient-header {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 20px 28px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .patient-intro {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .patient-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #0d9488 0%, #047857 100%);
+      color: white;
+      font-size: 20px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 18px rgba(13, 148, 136, 0.28);
+    }
+    .patient-title-group h1 {
+      font-size: 19px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .patient-tags-line {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pill-alert {
+      background: var(--rose-bg);
+      color: var(--rose);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* 顶部微型体征条 */
+    .vitals-horizon-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .vital-horizon-pill {
+      background: #f8fafc;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .vital-horizon-val { font-size: 15px; font-weight: 800; color: #0f172a; }
+    .vital-horizon-val.warning { color: var(--rose); }
+    .vital-horizon-meta { font-size: 10.5px; color: var(--text-muted); line-height: 1.1; }
+
+    /* 🌟 全息解剖 Bento 环形岛 (Anatomy Orbit Matrix) */
+    .anatomy-orbit-card {
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 26px 32px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .orbit-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .orbit-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* 3 列环形网格：左侧卡片 - 中央人体 - 右侧卡片 */
+    .orbit-layout-grid {
+      display: grid;
+      grid-template-columns: 1fr 220px 1fr;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .orbit-column {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* 环绕 Bento 卡片 */
+    .orbit-bento-item {
+      background: #f8fafc;
+      border-radius: 16px;
+      padding: 16px 20px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+    .orbit-bento-item:hover, .orbit-bento-item.active {
+      background: #ffffff;
+      border-color: var(--teal-primary);
+      box-shadow: 0 8px 24px rgba(13, 148, 136, 0.15);
+      transform: translateY(-2px);
+    }
+    .orbit-bento-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .orbit-bento-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .orbit-bento-status {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .orbit-bento-desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* 中央人体透视投影 */
+    .orbit-center-stage {
+      height: 330px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      background: radial-gradient(circle at center, #f0fdfa 0%, #ffffff 75%);
+      border-radius: 20px;
+      border: 1px dashed #cbd5e1;
+    }
+    .orbit-body-svg {
+      width: 170px;
+      height: 310px;
+    }
+
+    /* 解剖发光器官 */
+    .svg-organ {
+      transition: all 0.3s;
+      cursor: pointer;
+    }
+    .svg-organ.active {
+      filter: drop-shadow(0 0 8px currentColor);
+      transform-origin: center;
+    }
+
+    /* 核心百科活页 */
+    .wiki-living-sheet {
+      background: #ffffff;
+      border-radius: 22px;
+      padding: 30px 36px;
+      box-shadow: var(--card-shadow);
+    }
+    .sheet-nav-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 22px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    .sheet-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sheet-tab-pills {
+      display: flex;
+      gap: 6px;
+      background: #f1f5f9;
+      padding: 3px;
+      border-radius: 12px;
+    }
+    .sheet-tab-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 14px;
+      border-radius: 9px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .sheet-tab-btn.active {
+      background: #ffffff;
+      color: var(--teal-primary);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    /* AI 临床矛盾策展盒 */
+    .ai-curated-contradiction {
+      background: linear-gradient(135deg, #f0fdfa 0%, #fef3c7 100%);
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      border-left: 4px solid var(--teal-primary);
+    }
+    .curated-title {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--teal-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .curated-p {
+      font-size: 13.5px;
+      color: #334155;
+      line-height: 1.7;
+    }
+
+    /* 临床事实列表 */
+    .clinical-fact-item {
+      background: #f8fafc;
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+    }
+    .clinical-fact-item:hover, .clinical-fact-item.highlighted {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.25);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+    }
+    .fact-text { font-size: 13.5px; color: #1e293b; font-weight: 500; }
+    .fact-source-pill {
+      background: #ffffff;
+      border: 1px solid rgba(13, 148, 136, 0.25);
+      color: var(--teal-primary);
+      padding: 4px 11px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <aside class="bionic-sidebar">
+    <div class="brand-pill">
+      <div class="brand-icon">
+        <span class="material-symbols-outlined">vital_signs</span>
+      </div>
+      <div>
+        <div class="brand-title">LLMWiki 仿生视界</div>
+        <div style="display:flex; gap:4px; margin-top:2px;">
+          <span class="brand-badge">方案二 · 全息解剖 Bento 岛</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-roster">
+      <div class="roster-item active">
+        <div class="roster-name">张增良 · 73岁</div>
+        <div class="roster-sub">
+          <span style="color:#e11d48; font-weight:600;">慢阻肺+骨折</span>
+          <span>特级照护</span>
+        </div>
+      </div>
+      <div class="roster-item">
+        <div class="roster-name">刘先生 · 53岁</div>
+        <div class="roster-sub">
+          <span style="color:#e11d48; font-weight:600;">脑出血急救</span>
+          <span>ICU重症</span>
+        </div>
+      </div>
+      <div class="roster-item">
+        <div class="roster-name">陈女士 · 26岁</div>
+        <div class="roster-sub">
+          <span>克罗恩病监测</span>
+          <span>维持期</span>
+        </div>
+      </div>
+    </div>
+
+    <button style="padding: 10px; border-radius: 12px; border: 1px solid #e2e8f0; background: #ffffff; font-weight: 600; font-size: 12px; cursor: pointer; color: #475569;" onclick="window.location.href='/demos.html'">
+      ← 方案对比总览
+    </button>
+  </aside>
+
+  <main class="bionic-canvas">
+
+    <!-- 顶部患者名片 -->
+    <header class="horizon-patient-header">
+      <div class="patient-intro">
+        <div class="patient-avatar">张</div>
+        <div class="patient-title-group">
+          <h1>
+            张增良
+            <span style="font-size:13px; font-weight:600; color:var(--text-muted); background:#f1f5f9; padding:2px 8px; border-radius:6px;">男 · 73岁</span>
+          </h1>
+          <div class="patient-tags-line">
+            <span>📞 130-0000-0001</span>
+            <span>·</span>
+            <span class="pill-alert">
+              <span class="material-symbols-outlined" style="font-size:13px;">warning</span>
+              术前禁食水 · 慢阻肺20年
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="vitals-horizon-row">
+        <div class="vital-horizon-pill">
+          <span class="material-symbols-outlined" style="color:#0d9488; font-size:18px;">air</span>
+          <div>
+            <div class="vital-horizon-val warning">92%</div>
+            <div class="vital-horizon-meta">血氧(吸氧)</div>
+          </div>
+        </div>
+        <div class="vital-horizon-pill">
+          <span class="material-symbols-outlined" style="color:#f59e0b; font-size:18px;">water_drop</span>
+          <div>
+            <div class="vital-horizon-val">7.8</div>
+            <div class="vital-horizon-meta">血糖 mmol/L</div>
+          </div>
+        </div>
+        <div class="vital-horizon-pill">
+          <span class="material-symbols-outlined" style="color:#3b82f6; font-size:18px;">thermostat</span>
+          <div>
+            <div class="vital-horizon-val">36.8℃</div>
+            <div class="vital-horizon-meta">体温 正常</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 🌟 全息解剖 Bento 环形岛 -->
+    <section class="anatomy-orbit-card">
+      <div class="orbit-header">
+        <div class="orbit-title">
+          <span class="material-symbols-outlined" style="color:var(--teal-primary);">view_in_ar</span>
+          全息解剖环形矩阵 (点击或悬浮卡片联动高亮肉身器官)
+        </div>
+        <span style="font-size:12px; color:var(--text-muted);">4 大系统环形映射</span>
+      </div>
+
+      <div class="orbit-layout-grid">
+
+        <!-- 左翼卡片列 -->
+        <div class="orbit-column">
+          <!-- 🫁 呼吸系统 -->
+          <div class="orbit-bento-item active" id="card-lung" onmouseenter="highlightOrgan('lung')" onclick="selectOrgan('lung')">
+            <div class="orbit-bento-top">
+              <div class="orbit-bento-title">🫁 呼吸系统</div>
+              <span class="orbit-bento-status" style="background:#fef3c7; color:#d97706;">重度通气受阻</span>
+            </div>
+            <div class="orbit-bento-desc">慢阻肺病史20年，指脉氧92%，听诊双肺干啰音哮鸣音，需低流量吸氧并平喘。</div>
+          </div>
+
+          <!-- 🦴 骨骼运动系统 -->
+          <div class="orbit-bento-item" id="card-spine" onmouseenter="highlightOrgan('spine')" onclick="selectOrgan('spine')">
+            <div class="orbit-bento-top">
+              <div class="orbit-bento-title">🦴 骨骼系统</div>
+              <span class="orbit-bento-status" style="background:#fee2e2; color:#e11d48;">L2压缩骨折</span>
+            </div>
+            <div class="orbit-bento-desc">咳嗽诱发摔倒致L2腰椎前缘压缩1/3，严格硬板床制动，双人轴线翻身防移位。</div>
+          </div>
+        </div>
+
+        <!-- 中央人体全息舞台 -->
+        <div class="orbit-center-stage">
+          <svg class="orbit-body-svg" viewBox="0 0 200 360">
+            <!-- 身体轮廓基底 -->
+            <ellipse cx="100" cy="30" rx="18" ry="22" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1.8"/>
+            <path d="M62,64 C76,60 124,60 138,64 C144,80 140,130 135,170 C128,190 132,200 130,220 L70,220 C68,200 72,190 65,170 C60,130 56,80 62,64 Z" fill="#e8edf3" stroke="#cbd5e1" stroke-width="1.8"/>
+            <path d="M62,65 L42,140 L50,142 L66,75 Z" fill="#e2e8f0" opacity="0.8"/>
+            <path d="M138,65 L158,140 L150,142 L134,75 Z" fill="#e2e8f0" opacity="0.8"/>
+            <path d="M72,220 L74,325 L88,325 L96,220 Z" fill="#e2e8f0" opacity="0.8"/>
+            <path d="M128,220 L126,325 L112,325 L104,220 Z" fill="#e2e8f0" opacity="0.8"/>
+
+            <!-- 解剖器官 (带动态高亮发光) -->
+            <!-- 肺部 -->
+            <g id="body-lung" class="svg-organ active" fill="#f59e0b">
+              <path d="M74,80 C70,98 72,118 84,124 C92,124 94,105 92,85 C88,78 78,75 74,80 Z" stroke="#d97706" stroke-width="2" opacity="0.9"/>
+              <path d="M126,80 C130,98 128,118 116,124 C108,124 106,105 108,85 C112,78 122,75 126,80 Z" stroke="#d97706" stroke-width="2" opacity="0.9"/>
+            </g>
+
+            <!-- 脊柱与 L2 骨折 -->
+            <g id="body-spine" class="svg-organ" fill="#f43f5e">
+              <line x1="100" y1="70" x2="100" y2="175" stroke="#94a3b8" stroke-width="3" stroke-dasharray="3,2"/>
+              <rect x="91" y="142" width="18" height="12" rx="3" stroke="#e11d48" stroke-width="2"/>
+            </g>
+
+            <!-- 胰腺内分泌 -->
+            <g id="body-endocrine" class="svg-organ" fill="#10b981">
+              <path d="M88,130 C100,126 112,128 116,134 C110,138 95,138 88,130 Z" stroke="#059669" stroke-width="2"/>
+            </g>
+
+            <!-- 皮肤屏障受压点 (骶尾部) -->
+            <g id="body-skin" class="svg-organ" fill="#3b82f6">
+              <circle cx="100" cy="190" r="7" stroke="#2563eb" stroke-width="2"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- 右翼卡片列 -->
+        <div class="orbit-column">
+          <!-- 🩸 代谢内分泌 -->
+          <div class="orbit-bento-item" id="card-endocrine" onmouseenter="highlightOrgan('endocrine')" onclick="selectOrgan('endocrine')">
+            <div class="orbit-bento-top">
+              <div class="orbit-bento-title">🩸 代谢内分泌</div>
+              <span class="orbit-bento-status" style="background:#dcfce7; color:#16a34a;">胰岛素动态调控</span>
+            </div>
+            <div class="orbit-bento-desc">糖尿病4年，围术期严格禁食水，停用口服降糖药，启动皮下微量短效胰岛素。</div>
+          </div>
+
+          <!-- 🛡️ 皮肤与神经屏障 -->
+          <div class="orbit-bento-item" id="card-skin" onmouseenter="highlightOrgan('skin')" onclick="selectOrgan('skin')">
+            <div class="orbit-bento-top">
+              <div class="orbit-bento-title">🛡️ 皮肤与屏障</div>
+              <span class="orbit-bento-status" style="background:#e0e7ff; color:#4338ca;">Braden 14分受控</span>
+            </div>
+            <div class="orbit-bento-desc">长期卧床受压致压疮高危，启用气垫床防压疮，定时整轴轻柔翻身防剪切力。</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 百科主幕 -->
+    <article class="wiki-living-sheet">
+      <div class="sheet-nav-bar">
+        <div class="sheet-title">
+          <span class="material-symbols-outlined" style="color:var(--teal-primary);">menu_book</span>
+          客户健康百科 · 综合首页 (index.md)
+        </div>
+        <div class="sheet-tab-pills">
+          <button class="sheet-tab-btn active">综合概览</button>
+          <button class="sheet-tab-btn">既往诊疗轴</button>
+          <button class="sheet-tab-btn">协同用药方略</button>
+          <button class="sheet-tab-btn">随访溯源</button>
+        </div>
+      </div>
+
+      <div class="ai-curated-contradiction">
+        <div class="curated-title">
+          <span class="material-symbols-outlined" style="font-size:18px;">psychology</span>
+          AI 临床核心协同矛盾决策 (两难协调)
+        </div>
+        <div class="curated-p">
+          患者因慢阻肺咳嗽摔伤造成 L2 腰椎骨折。目前最关键冲突点在于：<strong>慢阻肺剧烈咳嗽引起的胸腹腔高压动荡，会直接造成腰椎骨折断端移位</strong>；但骨折要求绝对制动卧床，又阻碍排痰导致坠积性肺炎。
+        </div>
+      </div>
+
+      <div class="clinical-fact-item highlighted">
+        <span class="fact-text">患者张增良慢阻肺病史二十年，4月30日卧室床边咳嗽摔伤入院</span>
+        <button class="fact-source-pill">
+          <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+          溯源 #log_c1_1
+        </button>
+      </div>
+
+      <div class="clinical-fact-item highlighted">
+        <span class="fact-text">活动后气短加重，卧床低流量持续吸氧，指脉血氧维持在 92%</span>
+        <button class="fact-source-pill">
+          <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+          溯源 #log_c1_2
+        </button>
+      </div>
+
+      <div class="clinical-fact-item">
+        <span class="fact-text">既往4年糖尿病史，执行术前禁食水，短效胰岛素皮下微调血糖</span>
+        <button class="fact-source-pill">
+          <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+          溯源 #log_c1_3
+        </button>
+      </div>
+    </article>
+
+  </main>
+
+  <script>
+    function highlightOrgan(organ) {
+      document.querySelectorAll('.svg-organ').forEach(el => el.classList.remove('active'));
+      const organEl = document.getElementById(`body-${organ}`);
+      if (organEl) organEl.classList.add('active');
+    }
+
+    function selectOrgan(organ) {
+      document.querySelectorAll('.orbit-bento-item').forEach(it => it.classList.remove('active'));
+      const activeCard = document.getElementById(`card-${organ}`);
+      if (activeCard) activeCard.classList.add('active');
+      highlightOrgan(organ);
+    }
+  </script>
+</body>
+</html>

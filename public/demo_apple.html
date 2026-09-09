@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki · Apple Health 仿生全景视界 (Demo 2)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <style>
+    :root {
+      --canvas-bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+      --card-hover-shadow: 0 12px 32px -4px rgba(15, 23, 42, 0.08), 0 4px 12px -2px rgba(15, 23, 42, 0.04);
+      --text-main: #0f172a;
+      --text-body: #334155;
+      --text-muted: #64748b;
+      --teal-primary: #0d9488;
+      --teal-soft: #f0fdfa;
+      --amber-accent: #f59e0b;
+      --rose-alert: #f43f5e;
+      --font-display: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      --font-serif: 'Noto Serif SC', serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--canvas-bg);
+      color: var(--text-main);
+      font-family: var(--font-display);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* 仿生侧栏 */
+    .bionic-sidebar {
+      width: 280px;
+      background: #ffffff;
+      border-right: 1px solid rgba(0, 0, 0, 0.05);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 16px;
+      gap: 20px;
+    }
+    .bionic-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 8px;
+    }
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
+    }
+    .brand-title {
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .brand-subtitle { font-size: 11px; color: var(--text-muted); }
+
+    .patient-roster {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .roster-card {
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: #f8fafc;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1px solid transparent;
+    }
+    .roster-card:hover {
+      background: #ffffff;
+      box-shadow: var(--card-shadow);
+      transform: translateY(-1px);
+    }
+    .roster-card.active {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.25);
+      box-shadow: 0 6px 20px -2px rgba(13, 148, 136, 0.12);
+    }
+    .roster-card-name { font-size: 13.5px; font-weight: 700; margin-bottom: 2px; }
+    .roster-card-tags { font-size: 11px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
+    .tag-pill {
+      background: #e2e8f0;
+      color: #475569;
+      padding: 1px 6px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 10px;
+    }
+    .tag-pill.active-pill { background: #ccfbf1; color: #0f766e; }
+
+    /* 主画布区域 */
+    .bionic-canvas {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    /* 顶部患者全景视界卡 (Panoramic Patient Header) */
+    .patient-panoramic-card {
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 28px 32px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .patient-panoramic-card::after {
+      content: '';
+      position: absolute;
+      right: -80px;
+      top: -80px;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(20, 184, 166, 0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .panoramic-left {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .avatar-bionic {
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #0d9488 0%, #047857 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      font-weight: 800;
+      box-shadow: 0 8px 24px rgba(13, 148, 136, 0.35);
+    }
+    .patient-identity h1 {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .patient-demographics {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .allergy-soft-pill {
+      background: #fff1f2;
+      color: #e11d48;
+      border-radius: 8px;
+      padding: 2px 8px;
+      font-size: 11.5px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* 仿生生命力罗盘 (Vitality Radar & System Badges) */
+    .bionic-vitals-strip {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .vital-floating-card {
+      background: #f8fafc;
+      padding: 12px 18px;
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 96px;
+      transition: all 0.2s ease;
+    }
+    .vital-floating-card:hover {
+      background: #ffffff;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+      transform: translateY(-2px);
+    }
+    .vital-val-large {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text-main);
+    }
+    .vital-val-large.alert { color: var(--rose-alert); }
+    .vital-lbl-soft {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* 器官系统受损全景微徽章 (Organ System Micro-Grid) */
+    .organ-systems-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+    .system-chip-card {
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: all 0.2s;
+    }
+    .system-chip-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--card-hover-shadow);
+    }
+    .system-icon-wrap {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+    .system-icon-wrap.lung { background: #fef3c7; color: #b45309; }
+    .system-icon-wrap.spine { background: #fee2e2; color: #b91c1c; }
+    .system-icon-wrap.glucose { background: #f0fdf4; color: #15803d; }
+    .system-icon-wrap.neuro { background: #f1f5f9; color: #475569; }
+
+    .system-info { display: flex; flex-direction: column; }
+    .system-name { font-size: 13px; font-weight: 700; color: var(--text-main); }
+    .system-status { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+    .system-status.severe { color: #e11d48; font-weight: 600; }
+
+    /* 临床医学编纂正文 (Clinical Editorial Dossier) */
+    .editorial-dossier-card {
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 36px 44px;
+      box-shadow: var(--card-shadow);
+    }
+    .editorial-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    .editorial-title {
+      font-family: var(--font-serif);
+      font-size: 20px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .editorial-nav-pills {
+      display: flex;
+      gap: 6px;
+      background: #f1f5f9;
+      padding: 4px;
+      border-radius: 12px;
+    }
+    .nav-pill-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .nav-pill-btn.active {
+      background: #ffffff;
+      color: var(--teal-primary);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    }
+
+    /* 临床编纂正文排版 */
+    .editorial-article {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      font-size: 14.5px;
+      color: var(--text-body);
+      line-height: 1.8;
+    }
+
+    .ai-curated-summary-box {
+      background: linear-gradient(135deg, rgba(240, 253, 250, 0.8) 0%, rgba(254, 243, 199, 0.3) 100%);
+      border-radius: 18px;
+      padding: 22px 26px;
+      position: relative;
+    }
+    .summary-heading {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--teal-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .observation-bionic-card {
+      background: #f8fafc;
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+    .observation-bionic-card:hover {
+      background: #f1f5f9;
+      transform: translateX(4px);
+    }
+    .citation-badge {
+      background: #ffffff;
+      border: 1px solid rgba(13, 148, 136, 0.3);
+      color: var(--teal-primary);
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 左侧患者索引 (Apple Style) -->
+  <aside class="bionic-sidebar">
+    <div class="bionic-brand">
+      <div class="brand-icon">
+        <span class="material-symbols-outlined">favorite</span>
+      </div>
+      <div>
+        <div class="brand-title">全景健康档案</div>
+        <div class="brand-subtitle">Apple Bionic Studio</div>
+      </div>
+    </div>
+
+    <div class="patient-roster">
+      <!-- 患者 1 (当前选中) -->
+      <div class="roster-card active">
+        <div class="roster-card-name">张增良 · 73岁</div>
+        <div class="roster-card-tags">
+          <span class="tag-pill active-pill">慢阻肺重度</span>
+          <span>L2压缩骨折</span>
+        </div>
+      </div>
+      <!-- 患者 2 -->
+      <div class="roster-card">
+        <div class="roster-card-name">刘先生 · 53岁</div>
+        <div class="roster-card-tags">
+          <span class="tag-pill">ICU特级监护</span>
+          <span>脑溢血急救</span>
+        </div>
+      </div>
+      <!-- 患者 3 -->
+      <div class="roster-card">
+        <div class="roster-card-name">陈女士 · 26岁</div>
+        <div class="roster-card-tags">
+          <span class="tag-pill">克罗恩维持期</span>
+        </div>
+      </div>
+    </div>
+
+    <button style="padding: 10px; border-radius: 12px; border: 1px solid #e2e8f0; background: #ffffff; font-weight: 600; font-size: 12px; cursor: pointer;" onclick="window.location.href='/demos.html'">
+      ← 切换其他 Demo
+    </button>
+  </aside>
+
+  <!-- 主画布 -->
+  <main class="bionic-canvas">
+
+    <!-- 顶部全景名片 -->
+    <header class="patient-panoramic-card">
+      <div class="panoramic-left">
+        <div class="avatar-bionic">张</div>
+        <div class="patient-identity">
+          <h1>
+            张增良 
+            <span style="font-size:14px; font-weight:600; color:var(--text-muted);">男 · 73岁</span>
+          </h1>
+          <div class="patient-demographics">
+            <span>📞 130-0000-0001</span>
+            <span>·</span>
+            <span class="allergy-soft-pill">
+              <span class="material-symbols-outlined" style="font-size:14px;">warning</span>
+              术前禁食水 · 慢阻肺20年
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧悬浮体征胶囊 -->
+      <div class="bionic-vitals-strip">
+        <div class="vital-floating-card">
+          <span class="vital-val-large alert">92%</span>
+          <span class="vital-lbl-soft">SpO2 吸氧中</span>
+        </div>
+        <div class="vital-floating-card">
+          <span class="vital-val-large">7.8</span>
+          <span class="vital-lbl-soft">血糖 mmol/L</span>
+        </div>
+        <div class="vital-floating-card">
+          <span class="vital-val-large">36.8</span>
+          <span class="vital-lbl-soft">核心体温 ℃</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- 四大生理系统受损状态微徽章 -->
+    <section class="organ-systems-row">
+      <div class="system-chip-card">
+        <div class="system-icon-wrap lung">🫁</div>
+        <div class="system-info">
+          <span class="system-name">呼吸系统</span>
+          <span class="system-status severe">慢阻肺急性咳嗽 · 伴哮喘</span>
+        </div>
+      </div>
+      <div class="system-chip-card">
+        <div class="system-icon-wrap spine">🦴</div>
+        <div class="system-info">
+          <span class="system-name">骨骼运动系统</span>
+          <span class="system-status severe">L2腰椎压缩骨折 · 卧床</span>
+        </div>
+      </div>
+      <div class="system-chip-card">
+        <div class="system-icon-wrap glucose">🩸</div>
+        <div class="system-info">
+          <span class="system-name">内分泌代谢</span>
+          <span class="system-status">2型糖尿病4年 · 规律监测</span>
+        </div>
+      </div>
+      <div class="system-chip-card">
+        <div class="system-icon-wrap neuro">🛡️</div>
+        <div class="system-info">
+          <span class="system-name">皮肤与黏膜</span>
+          <span class="system-status">长期卧床压疮高危预警</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 医学典藏编纂正文 -->
+    <article class="editorial-dossier-card">
+      <div class="editorial-header">
+        <div class="editorial-title">客户健康百科 · 深度临床编纂</div>
+        <div class="editorial-nav-pills">
+          <button class="nav-pill-btn active">综合概览</button>
+          <button class="nav-pill-btn">既往诊疗轴</button>
+          <button class="nav-pill-btn">协同用药方略</button>
+          <button class="nav-pill-btn">随访溯源</button>
+        </div>
+      </div>
+
+      <div class="editorial-article">
+        <!-- AI 策展导读盒 -->
+        <div class="ai-curated-summary-box">
+          <div class="summary-heading">
+            <span class="material-symbols-outlined">auto_awesome</span>
+            AI 临床核心矛盾洞察（两难协同）
+          </div>
+          <p>
+            患者张增良目前面临极其严峻的<strong>内外科双重矛盾</strong>：慢阻肺咳嗽产生的剧烈腹压动荡，会直接导致刚发生骨折的 L2 腰椎发生移位风险；而骨折要求绝对平卧卧床，又会急剧恶化呼吸道分泌物排出，导致坠积性肺炎及压疮。
+          </p>
+        </div>
+
+        <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 10px;">
+          当前主要医学观察事实
+        </h3>
+
+        <div class="observation-bionic-card">
+          <span>慢阻肺病史十多快二十年，咳嗽剧烈失衡致床边摔伤</span>
+          <span class="citation-badge">🔗 证据 #log_c1_1</span>
+        </div>
+
+        <div class="observation-bionic-card">
+          <span>活动后气短加重，卧床低流量持续吸氧维持血氧 92%</span>
+          <span class="citation-badge">🔗 证据 #log_c1_2</span>
+        </div>
+
+        <div class="observation-bionic-card">
+          <span>术前禁食水执行中，胰岛素皮下微量泵控制围手术期血糖</span>
+          <span class="citation-badge">🔗 证据 #log_c1_3</span>
+        </div>
+      </div>
+    </article>
+
+  </main>
+</body>
+</html>

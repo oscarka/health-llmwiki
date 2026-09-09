@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './AnatomicalHealthMap.css';
 
-// ─── 器官与系统定义 (基于 Wikipedia organs.svg viewBox: 125 140 210 945 精确坐标) ───
+// ─── 器官与系统定义 (基于 Wikipedia organs.svg 全景 viewBox: 0 0 394.57 1085.92 精准解剖位) ───
 const ORGAN_DEFS = [
   {
     id: 'brain',
     name: '脑部与神经',
     icon: '🧠',
-    pctX: 50, pctY: 7, // 头部中枢
+    pctX: 50, pctY: 8, // 头部中枢 / 额叶大脑
     side: 'left',
     keywords: ['脑', '意识', '神志', '认知', '昏迷', '嗜睡', '失语', '偏瘫', '肌力', '瞳孔', '头晕', '头痛', '神经', '癫痫', '植物神经', 'HRV'],
   },
@@ -15,7 +15,7 @@ const ORGAN_DEFS = [
     id: 'lungs',
     name: '肺部与呼吸',
     icon: '🫁',
-    pctX: 43, pctY: 25, // 胸部肺叶
+    pctX: 38, pctY: 22, // 右肺叶 (解剖学右侧，观察者左侧)
     side: 'left',
     keywords: ['肺', '呼吸', '血氧', 'spo2', 'SpO2', '咳嗽', '咳痰', '喘', '吸氧', '雾化', '哮喘', '慢阻肺', '肺炎', '气促', '气管'],
   },
@@ -23,47 +23,47 @@ const ORGAN_DEFS = [
     id: 'heart',
     name: '心脏与循环',
     icon: '🫀',
-    pctX: 53, pctY: 27, // 胸部心脏偏左
-    side: 'left',
+    pctX: 54, pctY: 24, // 左侧胸部心脏
+    side: 'right',
     keywords: ['心', '脉搏', '血压', 'bp', 'BP', '胸闷', '心率', '冠心病', '房颤', '心梗', '心衰', '心跳', '高血压'],
-  },
-  {
-    id: 'liver',
-    name: '消化与胃肠',
-    icon: '🫘',
-    pctX: 57, pctY: 35, // 肝脏与胃肠消化道
-    side: 'right',
-    keywords: ['肝', '胃', '胆', '肠', '吐', '呕', '便', '消化', '食欲', '便秘', '腹泻', '腹痛', '胰腺炎', '克罗恩', '胃管', '大便', '黄染'],
-  },
-  {
-    id: 'pancreas',
-    name: '胰腺与血糖',
-    icon: '🩸',
-    pctX: 50, pctY: 38, // 胃下方胰腺
-    side: 'right',
-    keywords: ['血糖', '胰', '糖尿病', '尿糖', '糖化', '空腹血糖', '餐后血糖', 'HbA1c', '控糖', '胰岛素'],
-  },
-  {
-    id: 'kidneys',
-    name: '肾脏与泌尿',
-    icon: '🚽',
-    pctX: 47, pctY: 44, // 肾脏与膀胱
-    side: 'right',
-    keywords: ['肾', '尿', '输尿管', '膀胱', '留置导尿', '尿管', '肌酐', '尿酸'],
   },
   {
     id: 'spine',
     name: '脊柱与骨骼',
     icon: '🦴',
-    pctX: 50, pctY: 35, // 脊柱中轴
+    pctX: 50, pctY: 33, // 脊柱中轴 / 腰椎 L2
     side: 'left',
     keywords: ['骨', '脊柱', '椎', '骨折', '腰', '骨质', '股骨', '关节', '髋部', 'L2', '颈椎', '腰椎', '压缩', '摔伤', '硬板床'],
+  },
+  {
+    id: 'pancreas',
+    name: '胰腺与血糖',
+    icon: '🩸',
+    pctX: 53, pctY: 32, // 胃部后下方胰腺位置
+    side: 'right',
+    keywords: ['血糖', '胰', '糖尿病', '尿糖', '糖化', '空腹血糖', '餐后血糖', 'HbA1c', '控糖', '胰岛素'],
+  },
+  {
+    id: 'liver',
+    name: '消化与胃肠',
+    icon: '🫘',
+    pctX: 44, pctY: 30, // 肝脏与胃肠消化道
+    side: 'left',
+    keywords: ['肝', '胃', '胆', '肠', '吐', '呕', '便', '消化', '食欲', '便秘', '腹泻', '腹痛', '胰腺炎', '克罗恩', '胃管', '大便', '黄染'],
+  },
+  {
+    id: 'kidneys',
+    name: '肾脏与泌尿',
+    icon: '🚽',
+    pctX: 50, pctY: 42, // 肾脏与膀胱盆腔
+    side: 'right',
+    keywords: ['肾', '尿', '输尿管', '膀胱', '留置导尿', '尿管', '肌酐', '尿酸'],
   },
   {
     id: 'limbs',
     name: '四肢与运动',
     icon: '🦵',
-    pctX: 42, pctY: 74, // 下肢与膝关节
+    pctX: 43, pctY: 62, // 下肢膝关节与肢体运动中枢
     side: 'left',
     keywords: ['四肢', '下肢', '上肢', '翻身', '卧床', '活动障碍', '肢体', '膝', '足', '行走', '步态', '肌力', '步数', '摔伤'],
   },
@@ -74,7 +74,7 @@ const SYSTEMIC_DEFS = [
     id: 'infectious',
     name: '传染与免疫',
     icon: '🦠',
-    pctX: 72, pctY: 24, // 身体右侧
+    pctX: 58, pctY: 17, // 锁骨上淋巴与免疫屏障
     side: 'right',
     keywords: ['乙肝', '丙肝', '梅毒', '结核', '流感', '新冠', '隔离', '阳性', '感染', '传染', '带状疱疹', '破伤风', '乌司奴单抗'],
   },
@@ -82,7 +82,7 @@ const SYSTEMIC_DEFS = [
     id: 'allergy',
     name: '皮肤与屏障',
     icon: '🛡️',
-    pctX: 28, pctY: 24, // 身体左侧
+    pctX: 30, pctY: 20, // 肩臂皮肤与躯干屏障 (杜绝漂浮在体外空白处)
     side: 'left',
     keywords: ['过敏', '青霉素', '皮疹', '荨麻疹', '压疮', '褥疮', '皮肤', '受压', 'Braden', '气垫床'],
   },
@@ -213,7 +213,6 @@ function extractDynamicObservations(markdownContent) {
     }
   });
 
-  // 按受损分值降序排列，使最严重的器官排在最前
   return activeOrgans.sort((a, b) => b.score - a.score);
 }
 
@@ -223,7 +222,7 @@ export default function AnatomicalHealthMap({ markdownContent, selectedOrgan, on
   const [svgContent, setSvgContent] = useState('');
   const [hoveredId, setHoveredId] = useState(null);
 
-  // 异步加载 Wikipedia 的真实高精 organs.svg 文件并动态裁剪 viewBox 125 140 210 945
+  // 异步加载 Wikipedia 的真实高精 organs.svg 文件并采用 0 0 394.57 1085.92 全身解剖画布
   useEffect(() => {
     let isMounted = true;
     fetch('/organs.svg')
@@ -231,10 +230,12 @@ export default function AnatomicalHealthMap({ markdownContent, selectedOrgan, on
       .then(text => {
         if (!isMounted) return;
         let cleanSvg = text.replace(/<\?xml[^>]*\?>/i, '').replace(/<!DOCTYPE[^>]*>/i, '');
+        // 彻底移除引起白条的 layer4 背景遮罩
+        cleanSvg = cleanSvg.replace(/<g[^>]*id="layer4"[^>]*>[\s\S]*?<\/g>/gi, '');
         cleanSvg = cleanSvg.replace(/<svg([^>]*)(?:viewBox="[^"]*")?([^>]*)>/i, (match, before, after) => {
           const cleanBefore = before.replace(/\b(width|height)="[^"]*"/gi, '');
           const cleanAfter = after.replace(/\b(width|height)="[^"]*"/gi, '');
-          return `<svg ${cleanBefore} viewBox="125 140 210 945" style="width: 100%; height: 100%; display: block; object-fit: contain;" ${cleanAfter}>`;
+          return `<svg ${cleanBefore} viewBox="0 0 394.56741 1085.9232" style="width: 100%; height: 100%; display: block; object-fit: contain;" ${cleanAfter}>`;
         });
         setSvgContent(cleanSvg);
       })
@@ -245,7 +246,6 @@ export default function AnatomicalHealthMap({ markdownContent, selectedOrgan, on
     return () => { isMounted = false; };
   }, []);
 
-  // 动态分析当前病历观察
   const activeOrgans = useMemo(() => {
     return extractDynamicObservations(markdownContent);
   }, [markdownContent]);
@@ -276,48 +276,61 @@ export default function AnatomicalHealthMap({ markdownContent, selectedOrgan, on
         {/* 背景微光 */}
         <div className="anatomy-ambient-glow" />
 
-        {/* 动态载入的 Wikipedia 真实医学解剖矢量图 */}
-        {svgContent ? (
-          <div
-            className="anatomy-svg-inner"
-            dangerouslySetInnerHTML={{ __html: svgContent }}
-          />
-        ) : (
-          <div className="anatomy-loading-spinner">
-            <span className="material-symbols-outlined" style={{ animation: 'spin 1.5s linear infinite', color: '#0d9488' }}>progress_activity</span>
-            <span style={{ fontSize: '12px', color: '#64748b' }}>载入人体器官图...</span>
-          </div>
-        )}
-
-        {/* 覆盖在真实器官上的动态脉冲标点 Pins */}
-        {activeOrgans.map(organ => {
-          const sev = getSeverity(organ.score);
-          const isSelected = activeId === organ.id;
-          const isHovered = hoveredId === organ.id;
-
-          return (
+        {/* 核心人体与绝对定位锚点容器：严格保持 SVG 纵横比，确保锚点 100% 紧贴人体 */}
+        <div className="anatomy-stage-figure-wrap">
+          {svgContent ? (
             <div
-              key={organ.id}
-              className={`anatomy-pin ${isSelected ? 'active' : ''} ${isHovered ? 'hovered' : ''}`}
-              style={{
-                top: `${organ.pctY}%`,
-                left: `${organ.pctX}%`,
-                '--pin-color': sev.color
-              }}
-              onClick={() => handleSelect(organ.id)}
-              onMouseEnter={() => setHoveredId(organ.id)}
-              onMouseLeave={() => setHoveredId(null)}
-            >
-              <div className="pin-dot">
-                <div className="pin-pulse" />
-              </div>
-              <div className="pin-chip">
-                <span>{organ.icon}</span>
-                <span>{organ.name.split('与')[0]}</span>
-              </div>
+              className="anatomy-svg-inner"
+              dangerouslySetInnerHTML={{ __html: svgContent }}
+            />
+          ) : (
+            <div className="anatomy-loading-spinner">
+              <span className="material-symbols-outlined" style={{ animation: 'spin 1.5s linear infinite', color: '#0d9488' }}>progress_activity</span>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>载入人体器官图...</span>
             </div>
-          );
-        })}
+          )}
+
+          {/* 人体透视生理锚点层：与人体图 1:1 像素级贴合，杜绝漂移脱靶 */}
+          <div className="anatomy-pins-layer">
+            {activeOrgans.map(organ => {
+              const sev = getSeverity(organ.score);
+              const isSelected = activeId === organ.id;
+              const isHovered = hoveredId === organ.id;
+              const isFocal = isHovered || (!hoveredId && isSelected);
+
+              return (
+                <div
+                  key={organ.id}
+                  className={`anatomy-pin ${isFocal ? 'focal' : 'ambient'}`}
+                  style={{
+                    top: `${organ.pctY}%`,
+                    left: `${organ.pctX}%`,
+                    '--pin-color': sev.color
+                  }}
+                  onClick={() => handleSelect(organ.id)}
+                  onMouseEnter={() => setHoveredId(organ.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                >
+                  {isFocal ? (
+                    <>
+                      <div className="pin-focal-core" />
+                      <div className="pin-focal-ring" />
+                      <div className="pin-chip visible">
+                        <span style={{ fontWeight: '800' }}>{organ.name}</span>
+                        <span style={{ color: sev.color, fontSize: '10px' }}>({sev.label})</span>
+                        {organ.topObservation && (
+                          <span className="pin-chip-sub">· {organ.topObservation.slice(0, 16)}</span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="pin-ambient-dot" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* 底部动态检出的受损器官胶囊列表（完全跟随当前患者真实数据联动，绝不硬编码） */}
@@ -327,15 +340,18 @@ export default function AnatomicalHealthMap({ markdownContent, selectedOrgan, on
             ℹ️ 当前患者 Wiki 内容中暂未检出显著脏器受损警报。
           </div>
         ) : (
-          activeOrgans.slice(0, 4).map(organ => {
+          activeOrgans.map(organ => {
             const sev = getSeverity(organ.score);
             const isSelected = activeId === organ.id;
+            const isHovered = hoveredId === organ.id;
 
             return (
               <div
                 key={organ.id}
-                className={`organ-mini-pill ${isSelected ? 'active' : ''}`}
+                className={`organ-mini-pill ${isSelected ? 'active' : ''} ${isHovered ? 'hovered' : ''}`}
                 onClick={() => handleSelect(organ.id)}
+                onMouseEnter={() => setHoveredId(organ.id)}
+                onMouseLeave={() => setHoveredId(null)}
               >
                 <div className="mini-pill-name">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>

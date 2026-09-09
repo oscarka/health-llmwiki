@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki · 双翼解剖驾驶舱 (真实全数据版)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <style>
+    :root {
+      --canvas: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(226, 232, 240, 0.8);
+      --card-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+      --card-hover: 0 12px 32px -4px rgba(15, 23, 42, 0.08);
+      --text-main: #0f172a;
+      --text-secondary: #334155;
+      --text-muted: #64748b;
+      --teal-primary: #0d9488;
+      --teal-bg: #f0fdfa;
+      --teal-border: #ccfbf1;
+      --amber: #f59e0b;
+      --amber-bg: #fffbeb;
+      --rose: #f43f5e;
+      --rose-bg: #fff1f2;
+      --indigo: #6366f1;
+      --indigo-bg: #eef2ff;
+      --font-display: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--canvas);
+      color: var(--text-main);
+      font-family: var(--font-display);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* 侧边患者列表栏 */
+    .bionic-sidebar {
+      width: 260px;
+      background: #ffffff;
+      border-right: 1px solid rgba(0, 0, 0, 0.06);
+      display: flex;
+      flex-direction: column;
+      padding: 20px 14px;
+      gap: 14px;
+      flex-shrink: 0;
+    }
+    .brand-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 6px;
+    }
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #14b8a6, #0d9488);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
+    }
+    .brand-title { font-size: 14px; font-weight: 800; letter-spacing: -0.02em; }
+    .brand-badge {
+      font-size: 10px;
+      background: var(--teal-bg);
+      color: var(--teal-primary);
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-weight: 700;
+    }
+
+    .sidebar-roster-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0 8px;
+    }
+    .sidebar-roster {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .roster-item {
+      padding: 12px 14px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1.5px solid transparent;
+      background: #f8fafc;
+    }
+    .roster-item:hover {
+      background: #ffffff;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+      transform: translateY(-1px);
+    }
+    .roster-item.active {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.4);
+      box-shadow: 0 4px 16px rgba(13, 148, 136, 0.12);
+    }
+    .roster-name { font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center; }
+    .roster-sub { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+    .roster-tag-danger {
+      font-size: 10px;
+      background: var(--rose-bg);
+      color: var(--rose);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+
+    .sidebar-footer-btn {
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      background: #ffffff;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      color: #475569;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .sidebar-footer-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+    /* 主画布区域 */
+    .cockpit-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px 28px;
+      gap: 16px;
+      overflow-y: auto;
+      max-width: 1480px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* 顶部患者全景视界卡 (真实数据卡) */
+    .horizon-patient-header {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 18px 24px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .patient-intro {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .patient-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #0d9488 0%, #047857 100%);
+      color: white;
+      font-size: 20px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 18px rgba(13, 148, 136, 0.28);
+    }
+    .patient-title-group h1 {
+      font-size: 19px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .patient-tags-line {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pill-badge {
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .pill-badge.danger { background: var(--rose-bg); color: var(--rose); }
+    .pill-badge.amber { background: var(--amber-bg); color: var(--amber); }
+    .pill-badge.teal { background: var(--teal-bg); color: var(--teal-primary); }
+
+    /* 顶部快捷临床操作与体征组 */
+    .header-right-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .vitals-horizon-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .vital-horizon-pill {
+      background: #f8fafc;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .vital-horizon-pill:hover {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.3);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+    }
+    .vital-horizon-val { font-size: 15px; font-weight: 800; color: #0f172a; font-family: var(--font-mono); }
+    .vital-horizon-val.danger { color: var(--rose); }
+    .vital-horizon-val.warning { color: var(--amber); }
+    .vital-horizon-meta { font-size: 10px; color: var(--text-muted); line-height: 1.1; }
+
+    .btn-action-sync {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: linear-gradient(135deg, #0d9488, #047857);
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
+      transition: all 0.2s;
+    }
+    .btn-action-sync:hover { opacity: 0.95; transform: translateY(-1px); }
+
+    /* 双翼驾驶舱核心网格 (左：人体解剖透视投影台，右：Wiki 核心工作台) */
+    .dual-wing-grid {
+      display: grid;
+      grid-template-columns: 430px 1fr;
+      gap: 20px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* 左翼：人体解剖透视投影台 */
+    .anatomy-stage-card {
+      background: #ffffff;
+      border-radius: 22px;
+      padding: 22px 24px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+    .stage-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    .stage-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .stage-badge {
+      font-size: 11px;
+      background: #f0fdfa;
+      color: #0d9488;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 700;
+    }
+
+    /* 人体解剖舞台背景 */
+    .anatomy-body-wrapper {
+      flex: 1;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 410px;
+      background: radial-gradient(circle at 50% 45%, #f0fdfa 0%, #ffffff 75%);
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid #f1f5f9;
+    }
+
+    .anatomy-svg-canvas {
+      width: 250px;
+      height: 410px;
+      position: relative;
+    }
+
+    /* 发光脉冲标点 (Pins) */
+    .anatomy-pin {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .anatomy-pin:hover .pin-dot, .anatomy-pin.active .pin-dot {
+      transform: scale(1.35);
+    }
+    .pin-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--pin-color, #0d9488);
+      border: 2px solid white;
+      box-shadow: 0 0 14px var(--pin-color, #0d9488);
+      transition: all 0.2s;
+      position: relative;
+    }
+    .pin-pulse {
+      position: absolute;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid var(--pin-color, #0d9488);
+      opacity: 0.8;
+      top: -10px;
+      left: -10px;
+      animation: pinPulse 2.2s infinite cubic-bezier(0.2, 0.8, 0.2, 1);
+      pointer-events: none;
+    }
+    @keyframes pinPulse {
+      0% { transform: scale(0.6); opacity: 0.9; }
+      100% { transform: scale(2.3); opacity: 0; }
+    }
+
+    .pin-chip {
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+      padding: 4px 10px;
+      border-radius: 14px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #0f172a;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      border: 1px solid rgba(0,0,0,0.06);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }
+    .anatomy-pin:hover .pin-chip, .anatomy-pin.active .pin-chip {
+      border-color: var(--pin-color, #0d9488);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+      transform: scale(1.04);
+    }
+
+    /* 底部器官快捷过滤指示卡 */
+    .stage-organ-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .organ-mini-pill {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 8px 6px;
+      border: 1.5px solid var(--card-border);
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .organ-mini-pill:hover, .organ-mini-pill.active {
+      background: #ffffff;
+      border-color: var(--teal-primary);
+      box-shadow: 0 2px 10px rgba(13, 148, 136, 0.15);
+      transform: translateY(-1px);
+    }
+    .mini-pill-name { font-size: 11px; font-weight: 800; color: #0f172a; }
+    .mini-pill-status { font-size: 9.5px; color: var(--text-muted); margin-top: 2px; }
+
+    /* 右翼：核心医学百科工作台 (Wiki Workstation) */
+    .wiki-living-sheet {
+      background: #ffffff;
+      border-radius: 22px;
+      padding: 24px 30px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .sheet-nav-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    .sheet-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sheet-tab-pills {
+      display: flex;
+      gap: 6px;
+      background: #f1f5f9;
+      padding: 3px;
+      border-radius: 12px;
+    }
+    .sheet-tab-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 14px;
+      border-radius: 9px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .sheet-tab-btn.active {
+      background: #ffffff;
+      color: var(--teal-primary);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    /* AI 临床核心矛盾策展盒 */
+    .ai-curated-contradiction {
+      background: linear-gradient(135deg, #f0fdfa 0%, #fef3c7 100%);
+      border-radius: 16px;
+      padding: 18px 22px;
+      margin-bottom: 20px;
+      border-left: 4px solid var(--teal-primary);
+    }
+    .curated-title {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--teal-primary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .curated-p {
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.65;
+    }
+
+    /* 事实卡片与结构化观察块 (Observation Blocks) */
+    .fact-stream-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .clinical-fact-item {
+      background: #f8fafc;
+      border-radius: 14px;
+      padding: 14px 18px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1.5px solid transparent;
+    }
+    .clinical-fact-item:hover {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.25);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+    }
+    .clinical-fact-item.highlighted {
+      background: #ffffff;
+      border-color: var(--teal-primary);
+      box-shadow: 0 4px 18px rgba(13, 148, 136, 0.15);
+      transform: translateX(4px);
+    }
+    .clinical-fact-item.dimmed {
+      opacity: 0.4;
+      transform: scale(0.99);
+    }
+    .fact-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .fact-text { font-size: 13.5px; color: #1e293b; font-weight: 600; line-height: 1.5; }
+    .fact-meta-chips {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .badge-score-alert {
+      background: #fee2e2;
+      color: #e11d48;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+    }
+    .fact-source-pill {
+      background: #ffffff;
+      border: 1px solid rgba(13, 148, 136, 0.3);
+      color: var(--teal-primary);
+      padding: 4px 11px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .fact-source-pill:hover, .fact-source-pill.active {
+      background: var(--teal-bg);
+      border-color: var(--teal-primary);
+    }
+
+    /* 内联展开的真实证据卡 (Inline Raw Evidence) */
+    .inline-evidence-card {
+      display: none;
+      margin-top: 12px;
+      background: #ffffff;
+      border: 1px solid #ccfbf1;
+      border-left: 3px solid var(--teal-primary);
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-size: 12.5px;
+      color: #334155;
+      line-height: 1.65;
+      animation: fadeInSlide 0.25s ease-out forwards;
+    }
+    .inline-evidence-card.open { display: block; }
+    .evidence-meta-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px dashed #e2e8f0;
+      font-weight: 700;
+    }
+    .evidence-type-badge {
+      background: #e0f2fe;
+      color: #0369a1;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10.5px;
+    }
+    .evidence-body-quote {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: var(--font-display);
+      border-left: 2px solid #cbd5e1;
+      font-size: 12.5px;
+    }
+
+    @keyframes fadeInSlide {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* 时间轴视图与用药视图专用样式 */
+    .timeline-node-item {
+      position: relative;
+      padding-left: 26px;
+      margin-bottom: 20px;
+    }
+    .timeline-node-item::before {
+      content: '';
+      position: absolute;
+      left: 7px;
+      top: 6px;
+      bottom: -14px;
+      width: 2px;
+      background: #e2e8f0;
+    }
+    .timeline-node-item:last-child::before { display: none; }
+    .timeline-dot {
+      position: absolute;
+      left: 0;
+      top: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 3px solid var(--teal-primary);
+    }
+    .timeline-time-str {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      margin-bottom: 4px;
+    }
+
+    .medication-card-box {
+      background: #f8fafc;
+      border-radius: 14px;
+      padding: 16px 20px;
+      margin-bottom: 14px;
+      border: 1px solid var(--card-border);
+    }
+    .med-title {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    /* 侧拉证据抽屉 (Drawer) */
+    .evidence-drawer-overlay {
+      position: fixed;
+      top: 0;
+      right: -480px;
+      width: 460px;
+      height: 100vh;
+      background: rgba(255, 255, 255, 0.98);
+      backdrop-filter: blur(20px);
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
+      transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      padding: 26px;
+    }
+    .evidence-drawer-overlay.open { right: 0; }
+    .drawer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    .btn-close-drawer {
+      border: none;
+      background: #f1f5f9;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 左侧真实患者名录 (可动态切换真实数据) -->
+  <aside class="bionic-sidebar">
+    <div class="brand-pill">
+      <div class="brand-icon">
+        <span class="material-symbols-outlined">vital_signs</span>
+      </div>
+      <div>
+        <div class="brand-title">LLMWiki 仿生视界</div>
+        <div style="display:flex; gap:4px; margin-top:2px;">
+          <span class="brand-badge">方案一 · 双翼驾驶舱 (实数版)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-roster-title">真实客户健康档案库 (4)</div>
+
+    <div class="sidebar-roster">
+      <!-- 案例一 (当前聚焦) -->
+      <div class="roster-item active" id="roster-case1" onclick="switchPatient('case1')">
+        <div class="roster-name">
+          <span>张增良 · 73岁</span>
+          <span class="roster-tag-danger">一级护理</span>
+        </div>
+        <div class="roster-sub">
+          慢阻肺20年 · L2椎体压缩骨折 · 2型糖尿病
+        </div>
+      </div>
+
+      <!-- 案例二 -->
+      <div class="roster-item" id="roster-case2" onclick="switchPatient('case2')">
+        <div class="roster-name">
+          <span>陈先生 · 26岁</span>
+          <span style="font-size:10px; background:#e0f2fe; color:#0369a1; padding:1px 5px; border-radius:4px; font-weight:700;">维持期</span>
+        </div>
+        <div class="roster-sub">
+          克罗恩病(CD)2年 · 乌司奴单抗 · HRV穿戴预警
+        </div>
+      </div>
+
+      <!-- 案例三 -->
+      <div class="roster-item" id="roster-case3" onclick="switchPatient('case3')">
+        <div class="roster-name">
+          <span>刘先生 · 53岁</span>
+          <span class="roster-tag-danger">ICU急救</span>
+        </div>
+        <div class="roster-sub">
+          重度高血压脑出血 · 昏迷急诊多渠道回溯
+        </div>
+      </div>
+
+      <!-- 案例四 -->
+      <div class="roster-item" id="roster-case4" onclick="switchPatient('case4')">
+        <div class="roster-name">
+          <span>小明 · 8岁</span>
+          <span style="font-size:10px; background:#fef3c7; color:#d97706; padding:1px 5px; border-radius:4px; font-weight:700;">儿科分诊</span>
+        </div>
+        <div class="roster-sub">
+          骑车摔伤 · 退热后手脚黄染排查
+        </div>
+      </div>
+    </div>
+
+    <button class="sidebar-footer-btn" onclick="window.location.href='/demos.html'">
+      <span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span>
+      <span>返回原型展厅对比</span>
+    </button>
+  </aside>
+
+  <!-- 主工作区 -->
+  <main class="cockpit-main">
+
+    <!-- 顶部患者全景视界卡 (100% 真实监护数据) -->
+    <header class="horizon-patient-header">
+      <div class="patient-intro">
+        <div class="patient-avatar" id="hdrAvatar">张</div>
+        <div class="patient-title-group">
+          <h1>
+            <span id="hdrName">张增良</span>
+            <span id="hdrDemographics" style="font-size:13px; font-weight:600; color:var(--text-muted); background:#f1f5f9; padding:2px 8px; border-radius:6px;">男 · 73岁</span>
+            <span id="hdrCareBadge" class="pill-badge danger">一级护理 (高度依赖)</span>
+            <span class="pill-badge amber">跌倒高危 75分</span>
+            <span class="pill-badge danger">Braden 11分 (极高危压疮)</span>
+          </h1>
+          <div class="patient-tags-line">
+            <span id="hdrPhone">📞 130-0000-0001</span>
+            <span>·</span>
+            <span id="hdrBed">🏥 骨科脊柱病区一组 18床 (ZH0058921)</span>
+            <span>·</span>
+            <span id="hdrAllergies" style="color:#e11d48; font-weight:600;">⚠️ 无已知过敏 · 暂行术前禁食饮水</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧体征与操作 -->
+      <div class="header-right-group">
+        <div class="vitals-horizon-row">
+          <!-- 血氧 SpO2 (真实数据：低流量吸氧下 89%) -->
+          <div class="vital-horizon-pill">
+            <span class="material-symbols-outlined" style="color:#f43f5e; font-size:18px;">air</span>
+            <div>
+              <div class="vital-horizon-val danger" id="vitalSpo2">89%</div>
+              <div class="vital-horizon-meta">血氧 (吸氧2L)</div>
+            </div>
+          </div>
+
+          <!-- 血糖 (真实数据：9.2 mmol/L) -->
+          <div class="vital-horizon-pill">
+            <span class="material-symbols-outlined" style="color:#f59e0b; font-size:18px;">water_drop</span>
+            <div>
+              <div class="vital-horizon-val warning" id="vitalBg">9.2</div>
+              <div class="vital-horizon-meta">指血 mmol/L</div>
+            </div>
+          </div>
+
+          <!-- 呼吸 (真实数据：22次/分) -->
+          <div class="vital-horizon-pill">
+            <span class="material-symbols-outlined" style="color:#d97706; font-size:18px;">lungs</span>
+            <div>
+              <div class="vital-horizon-val warning" id="vitalResp">22</div>
+              <div class="vital-horizon-meta">呼吸 次/分</div>
+            </div>
+          </div>
+
+          <!-- 血压与体温 -->
+          <div class="vital-horizon-pill">
+            <span class="material-symbols-outlined" style="color:#0d9488; font-size:18px;">favorite</span>
+            <div>
+              <div class="vital-horizon-val" id="vitalBp">135/82</div>
+              <div class="vital-horizon-meta">血压 · 36.6℃</div>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn-action-sync" onclick="triggerSync()">
+          <span class="material-symbols-outlined" style="font-size:16px;">sync</span>
+          <span>同步 Wiki</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 双翼驾驶舱核心网格 -->
+    <div class="dual-wing-grid">
+
+      <!-- 左翼：高保真人体透视投影台 (真正可交互的肉身体态) -->
+      <section class="anatomy-stage-card">
+        <div class="stage-header">
+          <div class="stage-title">
+            <span class="material-symbols-outlined" style="color:var(--teal-primary);">accessibility_new</span>
+            数字化人体解剖透视图 (肉身受损锚点)
+          </div>
+          <span class="stage-badge" id="anatomyBadge">点击体标联动右侧病历</span>
+        </div>
+
+        <!-- 仿生人体舞台 -->
+        <div class="anatomy-body-wrapper" id="anatomyStage">
+
+          <!-- 现代医疗人体轮廓 SVG (精准比例矢量躯干) -->
+          <svg class="anatomy-svg-canvas" viewBox="0 0 200 390">
+            <!-- 头部 -->
+            <ellipse cx="100" cy="35" rx="20" ry="24" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="2"/>
+            <!-- 颈部 -->
+            <rect x="94" y="58" width="12" height="16" fill="#e2e8f0"/>
+            <!-- 躯干外轮廓 -->
+            <path d="M60,74 C75,70 125,70 140,74 C148,90 144,140 138,180 C130,200 135,210 132,230 L68,230 C65,210 70,200 62,180 C56,140 52,90 60,74 Z" fill="#e8edf3" stroke="#cbd5e1" stroke-width="2"/>
+            <!-- 上肢手臂 -->
+            <path d="M60,75 L38,150 L46,152 L64,85 Z" fill="#e2e8f0" opacity="0.8"/>
+            <path d="M140,75 L162,150 L154,152 L136,85 Z" fill="#e2e8f0" opacity="0.8"/>
+            <!-- 下肢大腿 -->
+            <path d="M72,230 L74,350 L88,350 L96,230 Z" fill="#e2e8f0" opacity="0.8"/>
+            <path d="M128,230 L126,350 L112,350 L104,230 Z" fill="#e2e8f0" opacity="0.8"/>
+
+            <!-- 解剖器官高亮图层 -->
+            <!-- 1. 肺叶 (慢阻肺+哮喘，血氧89%呼吸急促) -->
+            <g id="svg-lung" style="cursor:pointer;" onclick="focusOrgan('lung')">
+              <path d="M74,90 C70,110 72,130 84,136 C92,136 94,115 92,95 C88,88 78,85 74,90 Z" fill="#fef3c7" stroke="#f59e0b" stroke-width="2.2" opacity="0.95"/>
+              <path d="M126,90 C130,110 128,130 116,136 C108,136 106,115 108,95 C112,88 122,85 126,90 Z" fill="#fef3c7" stroke="#f59e0b" stroke-width="2.2" opacity="0.95"/>
+            </g>
+
+            <!-- 2. 脊柱中轴与 L2 椎体骨折截面 -->
+            <g id="svg-spine" style="cursor:pointer;" onclick="focusOrgan('spine')">
+              <line x1="100" y1="80" x2="100" y2="190" stroke="#94a3b8" stroke-width="3" stroke-dasharray="3,2"/>
+              <!-- L2 骨折爆裂红斑 -->
+              <rect x="91" y="152" width="18" height="11" rx="3" fill="#fee2e2" stroke="#f43f5e" stroke-width="2.5"/>
+            </g>
+
+            <!-- 3. 胰腺内分泌代谢 -->
+            <g id="svg-endocrine" style="cursor:pointer;" onclick="focusOrgan('endocrine')">
+              <path d="M88,140 C100,136 112,138 116,144 C110,148 95,148 88,140 Z" fill="#dcfce7" stroke="#10b981" stroke-width="2"/>
+            </g>
+
+            <!-- 4. 骶尾部皮肤受压受损区 (Braden 11分) -->
+            <g id="svg-skin" style="cursor:pointer;" onclick="focusOrgan('skin')">
+              <circle cx="100" cy="205" r="7" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+            </g>
+          </svg>
+
+          <!-- 真实脉冲体标 Pins -->
+          <!-- 🫁 肺部体标 Pin -->
+          <div class="anatomy-pin active" id="pin-lung" style="top: 27%; left: 26%; --pin-color: #f59e0b;" onclick="focusOrgan('lung')">
+            <div class="pin-dot"><div class="pin-pulse"></div></div>
+            <div class="pin-chip">🫁 慢阻肺 · SpO2 89%</div>
+          </div>
+
+          <!-- 🦴 L2 骨折体标 Pin -->
+          <div class="anatomy-pin" id="pin-spine" style="top: 47%; left: 74%; --pin-color: #f43f5e;" onclick="focusOrgan('spine')">
+            <div class="pin-dot"><div class="pin-pulse"></div></div>
+            <div class="pin-chip" style="border-color:#fecdd3; color:#e11d48;">🦴 L2压缩骨折1/3</div>
+          </div>
+
+          <!-- 🩸 胰腺代谢体标 Pin -->
+          <div class="anatomy-pin" id="pin-endocrine" style="top: 38%; left: 22%; --pin-color: #10b981;" onclick="focusOrgan('endocrine')">
+            <div class="pin-dot"><div class="pin-pulse"></div></div>
+            <div class="pin-chip">🩸 禁食水 · 糖9.2</div>
+          </div>
+
+          <!-- 🛡️ 皮肤压疮体标 Pin -->
+          <div class="anatomy-pin" id="pin-skin" style="top: 57%; left: 72%; --pin-color: #6366f1;" onclick="focusOrgan('skin')">
+            <div class="pin-dot"><div class="pin-pulse"></div></div>
+            <div class="pin-chip">🛡️ 压疮极高危 (11分)</div>
+          </div>
+
+        </div>
+
+        <!-- 底部 4 大系统过滤指示条 -->
+        <div class="stage-organ-strip">
+          <div class="organ-mini-pill active" id="pill-lung" onclick="focusOrgan('lung')">
+            <div class="mini-pill-name">🫁 呼吸系统</div>
+            <div class="mini-pill-status" style="color:#d97706;">SpO2 89% 气促</div>
+          </div>
+          <div class="organ-mini-pill" id="pill-spine" onclick="focusOrgan('spine')">
+            <div class="mini-pill-name">🦴 骨骼系统</div>
+            <div class="mini-pill-status" style="color:#e11d48;">L2骨折·制动</div>
+          </div>
+          <div class="organ-mini-pill" id="pill-endocrine" onclick="focusOrgan('endocrine')">
+            <div class="mini-pill-name">🩸 代谢内分泌</div>
+            <div class="mini-pill-status" style="color:#16a34a;">糖9.2·胰岛素</div>
+          </div>
+          <div class="organ-mini-pill" id="pill-skin" onclick="focusOrgan('skin')">
+            <div class="mini-pill-name">🛡️ 皮肤屏障</div>
+            <div class="mini-pill-status" style="color:#6366f1;">气垫床·轴线翻身</div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- 右翼：核心医学百科工作台 (全量真实 Wiki 数据流) -->
+      <article class="wiki-living-sheet">
+        <div class="sheet-nav-bar">
+          <div class="sheet-title">
+            <span class="material-symbols-outlined" style="color:var(--teal-primary);">menu_book</span>
+            <span id="tabSheetTitle">客户健康百科 · 综合首页 (index.md)</span>
+          </div>
+          <div class="sheet-tab-pills">
+            <button class="sheet-tab-btn active" onclick="switchWikiTab('index', this)">📋 综合首页</button>
+            <button class="sheet-tab-btn" onclick="switchWikiTab('history', this)">🧬 既往史时间轴</button>
+            <button class="sheet-tab-btn" onclick="switchWikiTab('meds', this)">💊 用药与医嘱</button>
+            <button class="sheet-tab-btn" onclick="switchWikiTab('evidence', this)">📅 随访溯源</button>
+          </div>
+        </div>
+
+        <!-- 视图 1：综合首页 (index.md) -->
+        <div id="view-tab-index">
+          <!-- AI 临床核心矛盾策展 -->
+          <div class="ai-curated-contradiction">
+            <div class="curated-title">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span class="material-symbols-outlined" style="font-size:18px;">psychology</span>
+                AI 临床核心协同矛盾决策 (两难协调规范)
+              </div>
+              <span style="font-size:11px; background:#ffffff; color:#0f766e; padding:2px 8px; border-radius:12px; font-weight:700;">两难协调</span>
+            </div>
+            <div class="curated-p">
+              患者因慢阻肺咳嗽剧烈导致重心不稳摔伤造成 L2 腰椎骨折。<strong>最关键冲突点在于：慢阻肺剧烈咳嗽引起的胸腹腔高压动荡，会直接造成腰椎骨折断端移位</strong>；但骨折要求绝对制动卧床，又严重阻碍排痰导致坠积性肺炎。临床决策需优先保障镇咳与轻柔双手护腰辅助轴线翻身。
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div style="font-size:13.5px; font-weight:800; color:#0f172a;">
+              已融合沉淀的医学事实与观察 (真实 observation-blocks)
+            </div>
+            <div style="font-size:11.5px; color:var(--text-muted);">
+              点击「🔗 溯源」就地展开原始材料
+            </div>
+          </div>
+
+          <!-- 真实观察条目流 -->
+          <div class="fact-stream-container">
+
+            <!-- 事实 1 (高危体征 0.95分) -->
+            <div class="clinical-fact-item highlighted" data-organ="lung">
+              <div class="fact-header-row">
+                <span class="fact-text">
+                  体温 36.6℃，脉搏 88次/分，呼吸 22次/分（气促明显），血氧 SpO2 89%（吸氧2L/min下），指尖血糖 9.2 mmol/L
+                </span>
+                <div class="fact-meta-chips">
+                  <span class="badge-score-alert">关注度 0.95 高危</span>
+                  <button class="fact-source-pill" onclick="toggleInline('ev-c1-3', this)">
+                    <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+                    溯源 #log_c1_3
+                  </button>
+                </div>
+              </div>
+              <div class="inline-evidence-card" id="ev-c1-3">
+                <div class="evidence-meta-bar">
+                  <span class="evidence-type-badge">材料三：骨科脊柱病区手腕带及床头监护 OCR</span>
+                  <span>2026-05-07 09:00</span>
+                  <span>护士站综合评估</span>
+                </div>
+                <div class="evidence-body-quote">
+                  「生命体征监护 (08:00)：体温 36.6℃，心率/脉搏 88次/分，呼吸 22次/分（气促明显），血氧饱和度（SpO2）89%（低流量鼻导管吸氧 2L/min 状态下），随机指尖血糖 9.2 mmol/L。Braden 压疮评分 11分（中度高危），跌倒危险评分 75分（高危）。」
+                </div>
+              </div>
+            </div>
+
+            <!-- 事实 2 (慢阻肺病史) -->
+            <div class="clinical-fact-item highlighted" data-organ="lung">
+              <div class="fact-header-row">
+                <span class="fact-text">患者张增良患有慢性阻塞性肺疾病（慢阻肺），病史十多快二十年伴哮喘</span>
+                <div class="fact-meta-chips">
+                  <span style="font-size:10.5px; color:var(--text-muted);">Finding</span>
+                  <button class="fact-source-pill" onclick="toggleInline('ev-c1-1', this)">
+                    <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+                    溯源 #log_c1_1
+                  </button>
+                </div>
+              </div>
+              <div class="inline-evidence-card" id="ev-c1-1">
+                <div class="evidence-meta-bar">
+                  <span class="evidence-type-badge">材料一：ASR 电话问诊录音转录原文</span>
+                  <span>2026-03-17 14:43</span>
+                  <span>呼叫中心与家属通话</span>
+                </div>
+                <div class="evidence-body-quote">
+                  「[家属]：他已经有十多快二十年的慢阻肺了，还有哮喘。平时就在家里用那个吸入的喷雾，但最近大半个月，吸了那个药也好像不管用，没走几步路就喘得不得了，精神也差，不爱动了。<br>[医生]：这是慢阻肺急性加重（AECOPD）的典型表现，随时有呼吸衰竭危险，建议立即做血气分析、肺部CT评估。」
+                </div>
+              </div>
+            </div>
+
+            <!-- 事实 3 (活动后气促) -->
+            <div class="clinical-fact-item highlighted" data-organ="lung">
+              <div class="fact-header-row">
+                <span class="fact-text">活动后气短加重，走路走没两步就喘得厉害，大口喘气，精神差不爱动</span>
+                <div class="fact-meta-chips">
+                  <span style="font-size:10.5px; color:var(--text-muted);">Signal</span>
+                  <button class="fact-source-pill" onclick="toggleInline('ev-c1-1b', this)">
+                    <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+                    溯源 #log_c1_1
+                  </button>
+                </div>
+              </div>
+              <div class="inline-evidence-card" id="ev-c1-1b">
+                <div class="evidence-meta-bar">
+                  <span class="evidence-type-badge">材料一：ASR 录音截选</span>
+                  <span>2026-03-17</span>
+                </div>
+                <div class="evidence-body-quote">
+                  「患者在家稍微走动即出现重度喘息，提示呼吸功能严重代偿不全，需规范低流量吸氧。」
+                </div>
+              </div>
+            </div>
+
+            <!-- 事实 4 (L2 骨折) -->
+            <div class="clinical-fact-item" data-organ="spine">
+              <div class="fact-header-row">
+                <span class="fact-text">4月30日卧室床边剧咳摔伤腰部，急诊拍片确诊 L2 椎体压缩骨折（压缩度约 1/3）</span>
+                <div class="fact-meta-chips">
+                  <span class="badge-score-alert" style="background:#fee2e2; color:#e11d48;">关注度 0.75</span>
+                  <button class="fact-source-pill" onclick="toggleInline('ev-c1-2', this)">
+                    <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+                    溯源 #log_c1_2
+                  </button>
+                </div>
+              </div>
+              <div class="inline-evidence-card" id="ev-c1-2">
+                <div class="evidence-meta-bar">
+                  <span class="evidence-type-badge">材料二：急诊入院病历记录 OCR</span>
+                  <span>2026-05-05 10:20</span>
+                  <span>脊柱外科赵强主治医师</span>
+                </div>
+                <div class="evidence-body-quote">
+                  「主诉：摔伤腰部致剧烈疼痛、活动受限5小时。现病史：4月30日下午因慢阻肺咳嗽剧烈导致重心不稳摔伤。急诊腰椎三维CT提示：L2椎体压缩性骨折，压缩程度约1/3。诊疗意见：收治入院骨科一组，绝对卧床休息，暂行术前禁食禁水。」
+                </div>
+              </div>
+            </div>
+
+            <!-- 事实 5 (糖尿病控糖) -->
+            <div class="clinical-fact-item" data-organ="endocrine">
+              <div class="fact-header-row">
+                <span class="fact-text">既往4年糖尿病史，执行术前禁饮禁食水，停用口服二甲双胍，启动短效胰岛素微调</span>
+                <div class="fact-meta-chips">
+                  <span style="font-size:10.5px; color:var(--text-muted);">Treatment</span>
+                  <button class="fact-source-pill" onclick="toggleInline('ev-c1-2b', this)">
+                    <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+                    溯源 #log_c1_2
+                  </button>
+                </div>
+              </div>
+              <div class="inline-evidence-card" id="ev-c1-2b">
+                <div class="evidence-meta-bar">
+                  <span class="evidence-type-badge">材料二：既往史与医嘱</span>
+                  <span>2026-05-05</span>
+                </div>
+                <div class="evidence-body-quote">
+                  「有糖尿病史4年，口服二甲双胍控制，空腹血糖7-8 mmol/L。入院后因术前禁食水，由内分泌会诊改为短效胰岛素动态皮下泵入，防止乳酸酸中毒与血糖大幅波动。」
+                </div>
+              </div>
+            </div>
+
+            <!-- 事实 6 (压疮高危) -->
+            <div class="clinical-fact-item" data-organ="skin">
+              <div class="fact-header-row">
+                <span class="fact-text">Braden 评分 11分（中度极高危），执行防褥疮波动性气垫床，每2小时双人轴线翻身</span>
+                <div class="fact-meta-chips">
+                  <span class="badge-score-alert">Protection</span>
+                  <button class="fact-source-pill" onclick="toggleInline('ev-c1-3b', this)">
+                    <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+                    溯源 #log_c1_3
+                  </button>
+                </div>
+              </div>
+              <div class="inline-evidence-card" id="ev-c1-3b">
+                <div class="evidence-meta-bar">
+                  <span class="evidence-type-badge">材料三：专科护理评估</span>
+                  <span>2026-05-07</span>
+                </div>
+                <div class="evidence-body-quote">
+                  「因腰椎压缩骨折绝对卧床限制，且频繁剧烈咳嗽磨损床单与皮肤，骶尾部极度潮湿易破溃。安全防范：使用波动性气垫床，每2小时护士轻柔轴线翻身扣背，严禁扭转剪切脊柱。」
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- 视图 2：既往史与时间轴 (medical_history.md) -->
+        <div id="view-tab-history" style="display:none;">
+          <div style="font-size:14px; font-weight:800; color:#0f172a; margin-bottom:16px;">
+            🧬 既往史与诊疗发展全轨迹时间轴
+          </div>
+
+          <div class="timeline-node-item">
+            <div class="timeline-dot" style="border-color:#f59e0b;"></div>
+            <div class="timeline-time-str">2026-03-17 14:43 · 慢阻肺咨询</div>
+            <div style="background:#f8fafc; border-radius:12px; padding:12px 16px; border:1px solid #e2e8f0;">
+              <strong>慢阻肺药效减退与活动气喘</strong>：家属致电咨询呼衰排查，值班医生强烈建议三甲医院呼吸科查血气分析、肺部CT及肺功能。
+            </div>
+          </div>
+
+          <div class="timeline-node-item">
+            <div class="timeline-dot" style="border-color:#f43f5e;"></div>
+            <div class="timeline-time-str">2026-04-30 15:30 · 居家跌倒受伤</div>
+            <div style="background:#f8fafc; border-radius:12px; padding:12px 16px; border:1px solid #e2e8f0;">
+              <strong>咳嗽诱发床边摔倒</strong>：患者在卧室床边剧烈咳嗽导致重心失控摔伤腰部，当即剧烈刺痛、无法站立翻身，居家卧床数日未愈。
+            </div>
+          </div>
+
+          <div class="timeline-node-item">
+            <div class="timeline-dot" style="border-color:#e11d48;"></div>
+            <div class="timeline-time-str">2026-05-05 10:20 · 急诊确诊入院</div>
+            <div style="background:#f8fafc; border-radius:12px; padding:12px 16px; border:1px solid #e2e8f0;">
+              <strong>急诊CT确诊 L2 压缩骨折 1/3</strong>：赵强主治医师下达医嘱收治骨科一组，严禁起坐下地，绝对卧床，暂行术前禁食禁水。
+            </div>
+          </div>
+
+          <div class="timeline-node-item">
+            <div class="timeline-dot" style="border-color:#0d9488;"></div>
+            <div class="timeline-time-str">2026-05-07 09:00 · 脊柱病区定级监护</div>
+            <div style="background:#f8fafc; border-radius:12px; padding:12px 16px; border:1px solid #e2e8f0;">
+              <strong>病区手腕带确立一级护理</strong>：SpO2 89% 低氧血症警报，Braden 11分极高危压疮，跌倒 75分，启动波动气垫床与双人整体轴线翻身。
+            </div>
+          </div>
+        </div>
+
+        <!-- 视图 3：用药方案与生活医嘱 (medication_plan.md) -->
+        <div id="view-tab-meds" style="display:none;">
+          <div style="font-size:14px; font-weight:800; color:#0f172a; margin-bottom:16px;">
+            💊 用药方案与生活医嘱 (medication_plan.md 现行医嘱)
+          </div>
+
+          <div class="medication-card-box">
+            <div class="med-title">
+              <span class="material-symbols-outlined" style="color:#0d9488;">air</span>
+              呼吸平喘与抗炎用药
+            </div>
+            <div style="font-size:13px; color:#334155; line-height:1.6;">
+              • <strong>雾化吸入支气管舒张剂</strong>：复方异丙托溴铵 / 沙丁胺醇雾化吸入，日间 2-3 次。<br>
+              • <strong>严禁禁忌</strong>：禁止随意盲目大剂量全身使用糖皮质激素，以防骨质疏松恶化及血糖暴冲；禁止使用强效中枢镇咳药以防痰液窒息。
+            </div>
+          </div>
+
+          <div class="medication-card-box">
+            <div class="med-title">
+              <span class="material-symbols-outlined" style="color:#10b981;">water_drop</span>
+              围手术期禁食水与血糖微调
+            </div>
+            <div style="font-size:13px; color:#334155; line-height:1.6;">
+              • <strong>停用口服药</strong>：术前禁食水期间停用二甲双胍片。<br>
+              • <strong>胰岛素微调</strong>：根据床旁每4小时指血监测（目标维持在 7.0 - 9.0 mmol/L），皮下微量短效胰岛素滴定。
+            </div>
+          </div>
+
+          <div class="medication-card-box" style="background:#fffbeb; border-color:#fde68a;">
+            <div class="med-title" style="color:#b45309;">
+              <span class="material-symbols-outlined" style="color:#d97706;">health_and_safety</span>
+              护士核心照护指南 (物理护腰与翻身)
+            </div>
+            <div style="font-size:13px; color:#78350f; line-height:1.65;">
+              • <strong>物理护腰手法</strong>：咳嗽时责任护士或家属需<strong>双手轻压患者腰部两侧</strong>，起到物理缓冲和固定脊柱作用，减轻咳嗽腹压震动对骨折断端的冲击！<br>
+              • <strong>绝对卧床与整体翻身</strong>：绝对平卧硬板床，使用波动性气垫床，每 2 小时整体轴线翻身扣背，禁用单人拖拉剪切脊柱。
+            </div>
+          </div>
+        </div>
+
+        <!-- 视图 4：随访与原始证据溯源 (communication_timeline.md + 真实原材料) -->
+        <div id="view-tab-evidence" style="display:none;">
+          <div style="font-size:14px; font-weight:800; color:#0f172a; margin-bottom:14px;">
+            📅 随访与原始证据档案库 (3 份原始真实材料全文)
+          </div>
+
+          <!-- 材料一全文 -->
+          <div class="medication-card-box">
+            <div class="med-title">
+              <span class="material-symbols-outlined" style="color:#0d9488;">phone_in_talk</span>
+              材料一：3月17日 ASR 电话问诊录音转录原文 (log_c1_1)
+            </div>
+            <div style="font-size:12.5px; color:#334155; background:#ffffff; padding:12px 14px; border-radius:10px; border:1px solid #e2e8f0; line-height:1.7;">
+              <strong>[呼叫中心]</strong>：您好，有什么可以帮您？<br>
+              <strong>[家属]</strong>：您好，我家老人家得了慢性慢阻肺，很喘像哮喘的那种，想找专家看一下。今年越来越严重了，走没两步就大口喘气。<br>
+              <strong>[医生]</strong>：73岁慢阻肺老先生，平时规律用药现在走两步严重气喘，这是慢阻肺急性加重（AECOPD）典型表现，随时有呼吸衰竭危险！强烈建议不要只依赖家里喷雾，立即去三甲呼吸科做血气分析、肺部CT评估，注意防寒保暖。
+            </div>
+          </div>
+
+          <!-- 材料二全文 -->
+          <div class="medication-card-box">
+            <div class="med-title">
+              <span class="material-symbols-outlined" style="color:#f43f5e;">description</span>
+              材料二：5月5日 脊柱外科急诊入院病历记录 OCR (log_c1_2)
+            </div>
+            <div style="font-size:12.5px; color:#334155; background:#ffffff; padding:12px 14px; border-radius:10px; border:1px solid #e2e8f0; line-height:1.7;">
+              <strong>【急诊病历】</strong>患者张增良，73岁。主诉：摔伤腰部致剧烈疼痛活动受限5小时。现病史：4月30日下午因慢阻肺剧咳重心不稳摔伤腰部，无法站立翻身。X线及三维CT提示：L2椎体压缩性骨折（压缩度约1/3）。既往慢阻肺10余年、糖尿病4年。诊疗意见：收治骨科一组，绝对卧床，暂行术前禁食禁水。医师：赵强。
+            </div>
+          </div>
+
+          <!-- 材料三全文 -->
+          <div class="medication-card-box">
+            <div class="med-title">
+              <span class="material-symbols-outlined" style="color:#e11d48;">badge</span>
+              材料三：5月7日 脊柱病区手腕带及床头监护信息 OCR (log_c1_3)
+            </div>
+            <div style="font-size:12.5px; color:#334155; background:#ffffff; padding:12px 14px; border-radius:10px; border:1px solid #e2e8f0; line-height:1.7;">
+              <strong>【病区床头卡】</strong>住院号 ZH0058921，骨科脊柱一组18床，一级护理。08:00监护：体温 36.6℃，脉搏 88，呼吸 22次/分（明显气促），SpO2 89%（低流量吸氧2L/min），指血 9.2 mmol/L。Braden 11分（极高危），跌倒 75分。防压疮气垫床，每2小时整体轴线翻身。
+            </div>
+          </div>
+        </div>
+
+      </article>
+
+    </div>
+
+  </main>
+
+  <script>
+    // 器官联动聚焦
+    function focusOrgan(organ) {
+      document.querySelectorAll('.organ-mini-pill').forEach(p => p.classList.remove('active'));
+      const pill = document.getElementById(`pill-${organ}`);
+      if (pill) pill.classList.add('active');
+
+      document.querySelectorAll('.anatomy-pin').forEach(pin => pin.classList.remove('active'));
+      const activePin = document.getElementById(`pin-${organ}`);
+      if (activePin) activePin.classList.add('active');
+
+      // 切换到综合首页并联动高亮对应事实
+      switchWikiTab('index', document.querySelector('.sheet-tab-btn:first-child'));
+
+      const items = document.querySelectorAll('.clinical-fact-item');
+      items.forEach(it => {
+        if (it.getAttribute('data-organ') === organ) {
+          it.classList.remove('dimmed');
+          it.classList.add('highlighted');
+          it.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+          it.classList.remove('highlighted');
+          it.classList.add('dimmed');
+        }
+      });
+    }
+
+    // 就地内联展开证据
+    function toggleInline(id, btn) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const isOpen = el.classList.contains('open');
+      if (isOpen) {
+        el.classList.remove('open');
+        btn.classList.remove('active');
+      } else {
+        el.classList.add('open');
+        btn.classList.add('active');
+      }
+    }
+
+    // 切换 Wiki 4 大 Tab
+    function switchWikiTab(tabKey, btn) {
+      document.querySelectorAll('.sheet-tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      document.getElementById('view-tab-index').style.display = tabKey === 'index' ? 'block' : 'none';
+      document.getElementById('view-tab-history').style.display = tabKey === 'history' ? 'block' : 'none';
+      document.getElementById('view-tab-meds').style.display = tabKey === 'meds' ? 'block' : 'none';
+      document.getElementById('view-tab-evidence').style.display = tabKey === 'evidence' ? 'block' : 'none';
+
+      const titles = {
+        'index': '客户健康百科 · 综合首页 (index.md)',
+        'history': '既往史与诊疗全轨迹时间轴 (medical_history.md)',
+        'meds': '用药方案与生活医嘱指南 (medication_plan.md)',
+        'evidence': '随访与原始证据档案库 (communication_timeline.md)'
+      };
+      document.getElementById('tabSheetTitle').innerText = titles[tabKey];
+    }
+
+    // 切换患者 (演示从真实数据中提取不同患者)
+    function switchPatient(caseKey) {
+      document.querySelectorAll('.roster-item').forEach(it => it.classList.remove('active'));
+      document.getElementById(`roster-${caseKey}`).classList.add('active');
+
+      if (caseKey === 'case1') {
+        document.getElementById('hdrName').innerText = '张增良';
+        document.getElementById('hdrAvatar').innerText = '张';
+        document.getElementById('hdrDemographics').innerText = '男 · 73岁';
+        document.getElementById('hdrBed').innerText = '🏥 骨科脊柱病区一组 18床 (ZH0058921)';
+        document.getElementById('hdrPhone').innerText = '📞 130-0000-0001';
+        document.getElementById('hdrAllergies').innerText = '⚠️ 无已知过敏 · 暂行术前禁食饮水';
+        document.getElementById('vitalSpo2').innerText = '89%';
+        document.getElementById('vitalBg').innerText = '9.2';
+        document.getElementById('vitalResp').innerText = '22';
+        document.getElementById('vitalBp').innerText = '135/82';
+        focusOrgan('lung');
+      } else if (caseKey === 'case2') {
+        document.getElementById('hdrName').innerText = '陈先生';
+        document.getElementById('hdrAvatar').innerText = '陈';
+        document.getElementById('hdrDemographics').innerText = '男 · 26岁';
+        document.getElementById('hdrBed').innerText = '🏥 消化内科 23床';
+        document.getElementById('hdrPhone').innerText = '📞 130-0000-0002';
+        document.getElementById('hdrAllergies').innerText = '无已知药物过敏 · 既往IT痰史';
+        document.getElementById('vitalSpo2').innerText = '98%';
+        document.getElementById('vitalBg').innerText = '5.4';
+        document.getElementById('vitalResp').innerText = '16';
+        document.getElementById('vitalBp').innerText = '118/74';
+      }
+    }
+
+    function triggerSync() {
+      const btn = event.currentTarget;
+      btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px; animation:spin 1s linear infinite;">sync</span> 正在同步...';
+      setTimeout(() => {
+        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">check</span> 已同步最新';
+        setTimeout(() => {
+          btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">sync</span> 同步 Wiki';
+        }, 2000);
+      }, 800);
+    }
+  </script>
+</body>
+</html>

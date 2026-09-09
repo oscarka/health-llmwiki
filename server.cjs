@@ -129,9 +129,19 @@ const appendSyncHistoryToFile = (clientId, entry) => {
 };
 
 // ──────────────────── Supabase / PostgreSQL 连接 ────────────────────
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
-  'postgresql://postgres:lnZbMyimxpMYgUp5@db.feaeonavsqzewadgoqeh.supabase.co:5432/postgres';
+function resolveDatabaseUrl(rawUrl) {
+  const url = rawUrl || process.env.DATABASE_URL || 'postgresql://postgres.feaeonavsqzewadgoqeh:lnZbMyimxpMYgUp5@aws-0-us-west-2.pooler.supabase.com:5432/postgres';
+  // 如果是直连域名 db.<ref>.supabase.co，自动转为 pooler 域名以确保 IPv4 兼容性和连接稳定性
+  const directMatch = url.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([a-z0-9]+)\.supabase\.co:(\d+)\/(.*)/);
+  if (directMatch) {
+    const [, user, pwd, ref, port, dbName] = directMatch;
+    const poolerUser = user.includes('.') ? user : `${user}.${ref}`;
+    return `postgresql://${poolerUser}:${pwd}@aws-0-us-west-2.pooler.supabase.com:5432/${dbName}`;
+  }
+  return url;
+}
+
+const DATABASE_URL = resolveDatabaseUrl(process.env.DATABASE_URL);
 
 let dbAvailable = null; // null: 探测中, true: 正常, false: 离线兜底本地文件
 
@@ -139,18 +149,18 @@ const pool = new Pool({
   connectionString: DATABASE_URL.includes('?')
     ? DATABASE_URL + '&gssencmode=disable'
     : DATABASE_URL + '?gssencmode=disable',
-  ssl: DATABASE_URL.includes('supabase.co') ? { rejectUnauthorized: false } : false,
+  ssl: DATABASE_URL.includes('supabase') || process.env.NODE_ENV === 'production'
+    ? { rejectUnauthorized: false, checkServerIdentity: () => undefined }
+    : false,
   max: 10,
-  idleTimeoutMillis: 60000,
+  idleTimeoutMillis: 30000,
   keepAlive: true,
-  connectionTimeoutMillis: 1500, // 快速探测，超时即切换本地文件
+  connectionTimeoutMillis: 15000, // 15秒超时，保障跨地域初次握手
 });
 
 pool.on('error', (err) => {
-  if (dbAvailable !== false) {
-    console.warn('[DB] PostgreSQL 连接不可用，已自动切换本地文件存储:', err.message);
-    dbAvailable = false;
-  }
+  console.warn('[DB] PostgreSQL 连接池告警:', err.message);
+  dbAvailable = false;
 });
 
 // 快速探测 DB
@@ -159,27 +169,44 @@ pool.query('SELECT 1').then(() => {
   console.log('[DB] PostgreSQL 连接就绪 (llmwiki schema)');
 }).catch((err) => {
   dbAvailable = false;
-  console.warn('[DB] PostgreSQL 连接失败，使用本地文件存储 (data/):', err.message);
+  console.warn('[DB] 初次探测连接失败，将在请求时自动尝试:', err.message);
 });
 
 // ── DB helper（所有 SQL 都在 llmwiki schema）────────────────────────
 const db = {
   query: async (sql, params) => {
-    if (dbAvailable === false) {
-      throw new Error('Database offline, fallback to local storage');
+    let client;
+    try {
+      client = await pool.connect();
+    } catch (connErr) {
+      dbAvailable = false;
+      throw connErr;
     }
-    const client = await pool.connect();
     try {
       const res = await client.query(sql, params);
       dbAvailable = true;
       return res;
-    } catch (err) {
-      dbAvailable = false;
-      throw err;
+    } catch (queryErr) {
+      throw queryErr;
     } finally {
-      client.release();
+      if (client) client.release();
     }
   },
+};
+
+// 格式化客户端对象，统一 createdAt 为标准 ISO 字符串
+const formatClient = (r) => {
+  if (!r) return null;
+  let createdAtIso = r.createdAt;
+  if (!createdAtIso) {
+    createdAtIso = new Date().toISOString();
+  } else if (!isNaN(Number(createdAtIso))) {
+    createdAtIso = new Date(Number(createdAtIso)).toISOString();
+  }
+  return {
+    ...r,
+    createdAt: createdAtIso,
+  };
 };
 
 // ──────────────────── 数据访问层（双写 / DB 优先 + 本地文件无缝兜底）────────────────────
@@ -194,7 +221,7 @@ const readClients = async () => {
       []
     );
     if (res && res.rows && res.rows.length > 0) {
-      return res.rows;
+      return res.rows.map(formatClient);
     }
     return readClientsFromFile();
   } catch (err) {
@@ -210,7 +237,7 @@ const findClient = async (id) => {
        FROM llmwiki.clients WHERE id=$1`,
       [id]
     );
-    if (res && res.rows && res.rows[0]) return res.rows[0];
+    if (res && res.rows && res.rows[0]) return formatClient(res.rows[0]);
   } catch (err) {}
   const list = readClientsFromFile();
   return list.find(c => c.id === id) || null;
@@ -218,16 +245,19 @@ const findClient = async (id) => {
 
 const createClient = async ({ id, name, age, gender, phone, allergies }) => {
   let created = null;
+  const now = Date.now();
   try {
     const res = await db.query(
-      `INSERT INTO llmwiki.clients (id, name, age, gender, phone, allergies)
-       VALUES ($1,$2,$3,$4,$5,$6)
+      `INSERT INTO llmwiki.clients (id, name, age, gender, phone, allergies, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT (id) DO UPDATE SET id=EXCLUDED.id
        RETURNING id, name, age, gender, phone, allergies,
                  created_at AS "createdAt", last_sync_at AS "lastSyncAt"`,
-      [id, name, age || null, gender || null, phone || null, allergies || null]
+      [id, name, age || null, gender || null, phone || null, allergies || null, now, now]
     );
-    created = res.rows[0];
+    if (res && res.rows && res.rows[0]) {
+      created = formatClient(res.rows[0]);
+    }
   } catch (err) {}
 
   const clients = readClientsFromFile();
@@ -235,7 +265,7 @@ const createClient = async ({ id, name, age, gender, phone, allergies }) => {
   const clientObj = created || {
     id, name, age: age ? parseInt(age) : null,
     gender: gender || null, phone: phone || null, allergies: allergies || null,
-    createdAt: new Date().toISOString(), lastSyncAt: null
+    createdAt: new Date(now).toISOString(), lastSyncAt: null
   };
   if (existingIdx >= 0) {
     clients[existingIdx] = { ...clients[existingIdx], ...clientObj };
@@ -262,7 +292,7 @@ const updateClientMeta = async (id, fields) => {
     if (fields.allergies !== undefined) { vals.push(fields.allergies || null); setClauses.push(`allergies=$${vals.length}`); }
     if (fields.lastSyncAt !== undefined) { vals.push(fields.lastSyncAt); setClauses.push(`last_sync_at=$${vals.length}`); }
     if (setClauses.length > 0) {
-      vals.push(new Date().toISOString());
+      vals.push(Date.now());
       setClauses.push(`updated_at=$${vals.length}`);
       const res = await db.query(
         `UPDATE llmwiki.clients SET ${setClauses.join(',')} WHERE id=$1
@@ -270,7 +300,9 @@ const updateClientMeta = async (id, fields) => {
                    created_at AS "createdAt", last_sync_at AS "lastSyncAt"`,
         vals
       );
-      updated = res.rows[0];
+      if (res && res.rows && res.rows[0]) {
+        updated = formatClient(res.rows[0]);
+      }
     }
   } catch (err) {}
 
@@ -441,6 +473,9 @@ const createDefaultWiki = (client) => {
   return {
     'index.md': `# 客户健康首页：${client.name}
 
+> [!IMPORTANT]
+> **医疗红线与过敏史**：${client.allergies ? `⚠️ **已知过敏**：${client.allergies}` : '暂无已知药物过敏登记。'}
+
 ## 1. 当前主要关注 (Current Key Concerns)
 *(此处由 AI 自动汇总最近最需要关注的健康信号，无原始记录时请手动录入)*
 * 暂无 AI 汇总关注项，请录入第一条沟通记录后同步 Wiki。
@@ -522,9 +557,9 @@ const createDefaultWiki = (client) => {
 
 **溯源引用格式**：在 Wiki 内容中使用 \`[🔗 溯源](log_id)\` 标记，点击可查看原始记录。
 
-例如：
-* 患者反映血压偏高 (158/98 mmHg) [🔗 溯源](log_示例ID)
-* 化验单提示 LDL-C 升高 [🔗 溯源](log_示例ID)
+例如（AI 同步后自动生成真实引用）：
+* 患者反映血压偏高 (158/98 mmHg) —— 此处将由 AI 自动挂载 🔗 溯源引用
+* 化验单提示 LDL-C 升高 —— 此处将由 AI 自动挂载 🔗 溯源引用
 
 > [!NOTE]
 > 📋 **溯源规则**：AI 在更新 Wiki 时应为每条关键观察挂载对应的溯源引用，保证每条信息都可回溯至原始证据。
@@ -1232,11 +1267,31 @@ ${content}
 ### 待合并的新增结构化事实：
 ${formattedFactsForLLM}
 
-### 更新与结构化 Block 指示（极其重要）：
-1. **增量更新**：只需将新事实中体现的内容增量填入或追加修改至对应的文件中。
-2. **保护历史信息**：严禁删除已有的重要病史和过敏史。如果过敏史等警示信息在事实中被确认，请在 index.md 的【红线警示】中追加。
-3. **观察与干预结构化 Block 语法要求（PRD 核心要求）**：
-   - 所有新增加的 **observation**（如生理信号、化验结果、功能变化）必须在其展示的列表中使用以下自定义 Block 格式输出（不要输出为普通的 Markdown 文本）：
+### 更新规则（极其重要，必须严格遵守）：
+
+**核心原则：智能更新合并，而非无脑追加。**
+
+1. **同义复述 → 仅补溯源，不新增行**：
+   若新事实与档案中已有条目表达相同含义（即使措辞略有不同），**禁止**新增一行重复内容。只需在已有条目末尾补充新的溯源徽章。
+   例：已有"用户每周运动3-4次 [🔗 溯源](log_A)"，新事实"用户每周进行中等强度运动3-4次"→ 更新为"用户每周运动3-4次（中等强度）[🔗 溯源](log_A) [🔗 溯源](log_B)"，不新增行。
+
+2. **矛盾事实 → 以最新为准，旧值注明历史**：
+   若新事实与已有事实存在数值或状态矛盾（如身高体重、血压、年龄），**以新事实为准**，在已有条目末尾用"（历史记录：旧值）"标注旧值，而不是并列两行。
+   例：已有"身高175cm体重70kg"，新事实"身高180cm体重80kg"→ 更新为"身高180cm体重80kg（历史记录：175cm/70kg）"。
+
+3. **核心画像字段单一化**：
+   \`user_profile.md\`"基本背景"中，年龄、性别、身高体重、核心诉求等基础属性**只保留一条最新记录**，不允许堆叠多个版本。
+
+4. **噪声过滤，以下内容禁止写入档案**：
+   - 系统操作流程（"工单待填写"、"将予以更正"、"档案已清空"、"已创建新工单"）
+   - 临时饮食打卡（"午餐食用了汉堡和薯条"之类单次饮食内容）
+   - 用户随口问的第三方咨询（家属/朋友的健康问题）
+   - AI 自身的操作说明话术
+
+5. **保护核心医疗警示**：严禁删除已有的过敏史和高危警示标记。如果过敏史在新事实中被确认，在 index.md 的【红线警示】中追加。
+
+6. **observation 和 intervention Block 语法（PRD 核心要求）**：
+   - 所有新增加的 **observation**（如生理信号、化验结果、功能变化）必须使用以下自定义 Block 格式输出：
      \`\`\`observation-block
      type: observation
      subtype: signal | finding | functional
@@ -1245,22 +1300,25 @@ ${formattedFactsForLLM}
        - 溯源ID
      attention_score: 注意力分数
      \`\`\`
-     其中 \`attention_score\` 必须取我们给出的"推荐 Attention Score"数值。\`evidence_refs\` 是包含"溯源ID"的 YAML 列表。
-   - 所有新增加的 **intervention**（如用药、治疗、管道、护理措施）必须在对应的干预措施列表中使用以下自定义 Block 格式输出：
+     其中 \`attention_score\` 必须取我们给出的"推荐 Attention Score"数值。
+   - 所有新增加的 **intervention**（如用药、治疗、管道、护理措施）必须使用以下 Block 格式输出：
      \`\`\`intervention-block
      type: intervention
-     subtype: treatment | pipeline | protection | care
+     subtype: treatment | nutrition | pipeline | protection | care
      content: "具体内容描述"
      evidence_refs:
        - 溯源ID
      \`\`\`
-4. **AI 安全红线**：严禁包含以下诊断性或恐慌性词语：\`AI确诊\`、\`AI诊断为\`、\`人工智能诊断\`、\`confirmed by AI\`、\`AI confirms\`、\`危及生命\`、\`life-threatening\`、\`AI判断\`。仅客观记录观察，禁止越权诊断！
-5. **用户画像信息（user_profile 类型事实）**：如果新增事实中包含 type: "user_profile" 的条目，请将其内容写入 \`user_profile.md\` 对应的章节（基本背景、沟通偏好、必须注意事项、个人与社会属性）。用普通 Markdown 文字写入，不使用 block 格式。如果某个章节已经有内容，将新信息追加到已有内容后面。
-6. **首页 AI 导读块**：如果更新了 \`index.md\`，请务必在 \`# 客户健康首页\` 大标题正下方输出 1-3 句精炼的导读大纲：
+   - **intervention/nutrition 去重规则**：若新的营养干预事实与已有 intervention-block 的 content 高度相似，只在已有 block 的 evidence_refs 中追加新的溯源ID，不创建新 block。
+
+7. **AI 安全红线**：严禁包含以下词语：\`AI确诊\`、\`AI诊断为\`、\`人工智能诊断\`、\`confirmed by AI\`、\`AI confirms\`、\`危及生命\`、\`life-threatening\`、\`AI判断\`。
+
+8. **首页 AI 导读块**：如果更新了 \`index.md\`，请在 \`# 客户健康首页\` 大标题正下方输出 1-3 句精炼导读：
    <!-- SUMMARY_START -->
    患者主要健康状况简述与近期重点关注事项摘要...
    <!-- SUMMARY_END -->
-7. **输出格式**：请直接输出一个合法的 JSON 对象，只需要包含【被更新或修改的文件】作为 Key（例如只包含 "medical_history.md" 和 "index.md"，未被修改的文件不需要包含在 JSON 中，以节省 Token 并防止截断），Value 是该文件更新后的完整 Markdown 内容。请确保输出是一个严格合法的 JSON 对象，不要包含任何 Markdown 格式包裹（如 \`\`\`json ），不要有任何解释性前缀或后缀。
+
+9. **输出格式**：请直接输出一个合法的 JSON 对象，只包含【被更新或修改的文件】作为 Key，Value 是该文件更新后的完整 Markdown 内容。不要包含 Markdown 格式包裹（如 \`\`\`json），不要有任何解释性前缀或后缀。
 
 示例输出格式:
 {
@@ -1325,7 +1383,129 @@ ${formattedFactsForLLM}
   }
 });
 
-// 10. Sync History
+// 11. Consolidate（AI 档案整理 / 去重巡检）
+app.post('/api/clients/:id/consolidate', async (req, res) => {
+  const { id } = req.params;
+  const consolidateStart = Date.now();
+  try {
+    const client = await findClient(id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
+
+    const currentWiki = await readWikiPages(id);
+    const pageKeys = Object.keys(currentWiki);
+    if (pageKeys.length === 0) return res.status(400).json({ error: '该客户暂无 Wiki 内容，无需整理' });
+
+    const totalChars = Object.values(currentWiki).reduce((s, v) => s + v.length, 0);
+    console.log(`[Consolidate] 开始整理客户 ${id}，共 ${pageKeys.length} 个页面，总字符数=${totalChars}`);
+
+    const consolidatePrompt = `你是一个专业的医疗健康档案整理助手。请对以下客户的 Wiki 档案进行全面整理和去重，输出整洁、结构清晰的版本。
+
+### 客户基本信息
+姓名: ${client.name}
+年龄: ${client.age || '未知'}
+性别: ${client.gender || '未知'}
+已知过敏史: ${client.allergies || '暂无'}
+
+### 当前档案全部内容：
+${Object.entries(currentWiki).map(([filename, content]) => `
+--- 文件名: ${filename} ---
+${content}
+`).join('\n')}
+
+### 整理任务（按优先级依次执行）：
+
+1. **去重合并**：
+   - 找出所有含义相同或高度相似的条目（不论措辞如何），合并为一条最完整的表述，将所有溯源徽章合并到同一行末尾
+   - \`user_profile.md\` "基本背景"中，每类基础属性（年龄/身高体重/核心诉求/运动频率等）只保留一条最新、最完整的记录
+
+2. **矛盾裁决**：
+   - 对于同一字段存在多个不同数值的情况（如多个身高体重、多个年龄、多个血压值），以最新日志时间戳的记录为准，旧值用"（历史记录：旧值）"简短标注
+
+3. **噪声清洗**：彻底删除以下内容：
+   - 系统操作流程记录（"工单待填写"、"将予以更正"、"档案已清空"、"已创建新工单"、"重新生成"等）
+   - 单次临时饮食打卡（如"午餐食用了汉堡和薯条"）
+   - 用户随口咨询的第三方家属/朋友健康问题（非该患者自身信息）
+   - AI 自身的操作说明话术（"根据您的要求"、"按照新工单"等）
+
+4. **intervention-block 去重**：
+   - 对于 medication_plan.md 中内容高度相似的 intervention-block（尤其是 nutrition 类型），合并为一个 block，evidence_refs 列出所有来源的溯源ID
+   - 对于不属于该患者的干预建议（如家属的老年人脂肪肝建议），彻底删除
+
+5. **保留不动**：
+   - 所有已有的溯源徽章（[🔗 溯源](log_xxx)）必须全部保留在整理后的版本中，不得删除
+   - 过敏史、高危警示、红线标记等安全信息必须保留
+
+6. **格式保持**：
+   - 保持原有的 observation-block 和 intervention-block 代码块格式不变
+   - 保持原有的页面章节结构（标题层级、章节顺序）不变
+
+### AI 安全红线：
+严禁输出：\`AI确诊\`、\`AI诊断为\`、\`人工智能诊断\`、\`confirmed by AI\`、\`危及生命\`、\`life-threatening\`。
+
+### 输出格式：
+请直接输出一个合法的 JSON 对象，包含所有整理后的页面（即使未修改的页面也需要输出完整内容），Key 为文件名，Value 为整理后的完整 Markdown 内容。不要包含 Markdown 格式包裹（如 \`\`\`json），不要有任何解释性前缀或后缀。`;
+
+    const consolidateResponse = await getOpenAI().chat.completions.create({
+      model: process.env.CONSOLIDATE_MODEL || process.env.SYNC_MODEL || 'deepseek-v4-flash-ga-260731',
+      messages: [
+        { role: 'system', content: 'You are a professional assistant that outputs strict JSON only. No markdown, no explanation.' },
+        { role: 'user', content: consolidatePrompt }
+      ],
+      temperature: 0.1,
+      max_tokens: 16384,
+      response_format: { type: 'json_object' }
+    });
+
+    const rawContent = consolidateResponse.choices[0]?.message?.content || '{}';
+    let consolidatedWiki;
+    try {
+      consolidatedWiki = robustParseJson(rawContent);
+    } catch (e) {
+      throw new Error('整理结果 JSON 解析失败: ' + e.message);
+    }
+
+    // 安全阀：每个页面整理后不得缩水超过 40%（防止 LLM 过度摘要）
+    const SHRINK_THRESHOLD = 0.6;
+    const rejected = [];
+    for (const [pageName, newContent] of Object.entries(consolidatedWiki)) {
+      if (!currentWiki[pageName]) continue;
+      const oldLen = currentWiki[pageName].length;
+      const newLen = (newContent || '').length;
+      if (oldLen > 200 && newLen < oldLen * SHRINK_THRESHOLD) {
+        rejected.push(pageName);
+        consolidatedWiki[pageName] = currentWiki[pageName]; // 回滚到原内容
+        console.warn(`[Consolidate] ⚠️ ${pageName} 缩水过多 (${oldLen}→${newLen}，${(newLen/oldLen*100).toFixed(0)}%)，已回滚`);
+      }
+    }
+
+    // 写入整理后的内容
+    await writeWikiPages(id, consolidatedWiki);
+
+    const durationMs = Date.now() - consolidateStart;
+    const stats = Object.entries(consolidatedWiki).map(([k, v]) => ({
+      page: k,
+      before: currentWiki[k]?.length || 0,
+      after: (v || '').length,
+      saved: Math.max(0, (currentWiki[k]?.length || 0) - (v || '').length)
+    }));
+    const totalSaved = stats.reduce((s, x) => s + x.saved, 0);
+
+    console.log(`[Consolidate] ✓ 完成 耗时=${durationMs}ms 压缩节省=${totalSaved}字符 回滚页面=${rejected.join(',') || '无'}`);
+    res.json({
+      message: '档案整理完成',
+      durationMs,
+      stats,
+      totalCharsSaved: totalSaved,
+      rolledBack: rejected
+    });
+  } catch (err) {
+    console.error('[POST /clients/:id/consolidate] 失败:', err);
+    res.status(500).json({ error: '档案整理失败: ' + err.message });
+  }
+});
+
+// 10b. Sync History
+
 app.get('/api/clients/:id/sync-history', async (req, res) => {
   try {
     const { id } = req.params;

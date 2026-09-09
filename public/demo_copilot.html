@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki · Heidi/Nabla 认知演进工作室 (Demo 3)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --indigo-primary: #6366f1;
+      --indigo-glow: rgba(99, 102, 241, 0.3);
+      --emerald-success: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.25);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0b0f19;
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 顶部工作台状态条 */
+    .studio-header {
+      height: 54px;
+      background: rgba(15, 23, 42, 0.95);
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      z-index: 100;
+    }
+    .studio-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .studio-brand-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 0 12px var(--indigo-glow);
+    }
+    .pipeline-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      color: #a5b4fc;
+    }
+    .pulsing-orb {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #6366f1;
+      box-shadow: 0 0 8px #6366f1;
+      animation: orbPulse 1.5s infinite;
+    }
+    @keyframes orbPulse { 0% { transform: scale(0.8); opacity: 0.5; } 50% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(0.8); opacity: 0.5; } }
+
+    /* 三幕式工作台 (Three-Act Stage) */
+    .three-act-stage {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 320px 360px 1fr;
+      overflow: hidden;
+    }
+
+    /* 幕 1: 多渠道原始碎片流 */
+    .stage-act {
+      border-right: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      background: rgba(15, 23, 42, 0.4);
+    }
+    .act-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 10;
+    }
+    .act-title { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .act-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .act-content-stream {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .source-fragment-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 12px;
+      transition: all 0.2s;
+    }
+    .source-fragment-card:hover {
+      border-color: rgba(99, 102, 241, 0.4);
+      background: rgba(30, 41, 59, 0.9);
+    }
+    .source-meta {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    /* 幕 2: AI 推理与提炼神经中枢 */
+    .pipeline-node-list {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .pipeline-step-box {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 14px;
+      position: relative;
+    }
+    .pipeline-step-box.active-step {
+      border-color: var(--indigo-primary);
+      box-shadow: 0 0 16px var(--indigo-glow);
+    }
+    .step-label {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #818cf8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .extracted-entity-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      margin: 3px 2px;
+    }
+
+    /* 幕 3: 活体百科输出与 Diff */
+    .wiki-editorial-stage {
+      background: #090d16;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .wiki-editorial-wrapper {
+      padding: 32px 48px;
+      max-width: 860px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .diff-highlight-add {
+      background: rgba(16, 185, 129, 0.15);
+      border-left: 3px solid var(--emerald-success);
+      padding: 8px 12px;
+      border-radius: 0 6px 6px 0;
+      margin: 8px 0;
+      color: #a7f3d0;
+      font-size: 13.5px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部状态栏 -->
+  <header class="studio-header">
+    <div class="studio-brand">
+      <div class="studio-brand-icon">
+        <span class="material-symbols-outlined" style="font-size:18px;">psychology</span>
+      </div>
+      <div>LLMWiki 认知演进工作室</div>
+    </div>
+
+    <div class="pipeline-status">
+      <span class="pulsing-orb"></span>
+      <span>大模型神经演进流已连接 (DeepSeek 事实提取引擎)</span>
+    </div>
+
+    <button style="padding: 6px 14px; border-radius: 8px; border: 1px solid var(--card-border); background: transparent; color: white; cursor: pointer; font-size: 12px;" onclick="window.location.href='/demos.html'">
+      ← 切换其他 Demo
+    </button>
+  </header>
+
+  <!-- 三幕式全景舞台 -->
+  <main class="three-act-stage">
+
+    <!-- 幕 1: 多渠道原始输入源 -->
+    <section class="stage-act">
+      <div class="act-header">
+        <div class="act-title">
+          <span class="act-num">1</span>
+          多渠道原始碎片
+        </div>
+        <span style="font-size:11px; color:var(--text-muted);">3 条待融碎片</span>
+      </div>
+
+      <div class="act-content-stream">
+        <div class="source-fragment-card">
+          <div class="source-meta">
+            <span>📞 电话录音 (01:42)</span>
+            <span>07:15</span>
+          </div>
+          <p style="color:#cbd5e1; line-height:1.5;">
+            “急诊！患者53岁突然口角歪斜，偏瘫倒地，测血压快200了，完全不能说话！”
+          </p>
+        </div>
+
+        <div class="source-fragment-card">
+          <div class="source-meta">
+            <span>📄 急诊CT单 (OCR)</span>
+            <span>08:30</span>
+          </div>
+          <p style="color:#cbd5e1; line-height:1.5;">
+            左基底节区高密度血肿，出血量约 35ml，破入侧脑室，中线轻度受压。
+          </p>
+        </div>
+
+        <div class="source-fragment-card">
+          <div class="source-meta">
+            <span>💬 ICU重症日志</span>
+            <span>10:00</span>
+          </div>
+          <p style="color:#cbd5e1; line-height:1.5;">
+            气管插管呼吸机辅助通气，乌拉地尔泵入控血压在 140/85 mmHg，特级护理中。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 幕 2: AI 认知中间态推理 -->
+    <section class="stage-act">
+      <div class="act-header">
+        <div class="act-title">
+          <span class="act-num">2</span>
+          大模型认知提取链
+        </div>
+        <span style="font-size:11px; color:#10b981;">提取度: 100%</span>
+      </div>
+
+      <div class="pipeline-node-list">
+        <div class="pipeline-step-box active-step">
+          <div class="step-label">
+            <span class="material-symbols-outlined" style="font-size:16px;">search_check</span>
+            1. 生理信号实体识别
+          </div>
+          <div>
+            <span class="extracted-entity-chip">收缩压: 198 mmHg</span>
+            <span class="extracted-entity-chip">突发偏瘫</span>
+            <span class="extracted-entity-chip">失语/口角歪斜</span>
+          </div>
+        </div>
+
+        <div class="pipeline-step-box active-step">
+          <div class="step-label">
+            <span class="material-symbols-outlined" style="font-size:16px;">verified_user</span>
+            2. 证据链严谨溯源绑定
+          </div>
+          <p style="font-size:12px; color:#cbd5e1; line-height:1.5;">
+            已为每个提取结论绑定唯一 LogID 溯源标识，拒绝未经验证的幻觉。
+          </p>
+        </div>
+
+        <div class="pipeline-step-box active-step">
+          <div class="step-label">
+            <span class="material-symbols-outlined" style="font-size:16px;">difference</span>
+            3. 百科增量重构与 Diff 计算
+          </div>
+          <p style="font-size:12px; color:#cbd5e1; line-height:1.5;">
+            成功将急性 ICU 急救医嘱与监护方案增量融合入 <code>index.md</code>。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 幕 3: 活体百科输出 -->
+    <section class="wiki-editorial-stage">
+      <div class="act-header">
+        <div class="act-title">
+          <span class="act-num">3</span>
+          活体百科最终沉淀 (Living Dossier)
+        </div>
+        <button style="padding: 4px 10px; border-radius: 6px; background: #2563eb; color: white; border: none; font-size: 11.5px; font-weight: 600; cursor: pointer;">
+          ✓ 确认合并入档案
+        </button>
+      </div>
+
+      <div class="wiki-editorial-wrapper">
+        <h1 style="font-size: 22px; font-weight: 800; margin-bottom: 16px; color: white;">
+          客户健康百科：重度高血压脑出血急救
+        </h1>
+
+        <div style="background: rgba(244, 63, 94, 0.1); border-left: 4px solid #f43f5e; padding: 14px 18px; border-radius: 0 8px 8px 0; margin-bottom: 24px;">
+          <div style="font-weight: 700; color: #f43f5e; font-size: 13px; margin-bottom: 4px;">
+            🚨 特级监护红线警告
+          </div>
+          <p style="font-size: 13px; color: #fda4af; line-height: 1.6;">
+            脑水肿高危期！严格控制血压收缩压在 130-140 mmHg，维持呼吸机气道通畅，严防管路滑脱导致不可逆损伤。
+          </p>
+        </div>
+
+        <h2 style="font-size: 16px; font-weight: 700; margin: 20px 0 10px 0; color: #e2e8f0;">
+          增量事实演进 (Diff Highlights)
+        </h2>
+
+        <div class="diff-highlight-add">
+          <strong>+ [生理信号]</strong> 血压飙升至 198/112 mmHg，头部CT证实左基底节区出血约 35ml <span style="font-family:var(--font-mono); font-size:11px; color:#34d399;">#log_c3_2</span>
+        </div>
+
+        <div class="diff-highlight-add">
+          <strong>+ [当前干预]</strong> 乌拉地尔持续静脉泵入控制脑灌注压，气管插管呼吸机辅助通气 <span style="font-family:var(--font-mono); font-size:11px; color:#34d399;">#log_c3_3</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</body>
+</html>

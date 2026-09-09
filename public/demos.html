@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki · 融合人体解剖图的 3 种完全不同全新设计范式</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Noto+Serif+SC:wght@700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #f8fafc;
+      color: #0f172a;
+      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      min-height: 100vh;
+      padding: 44px 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .showcase-header {
+      text-align: center;
+      max-width: 880px;
+      margin-bottom: 36px;
+    }
+    .badge-hero {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 18px;
+      border-radius: 20px;
+      background: #ccfbf1;
+      border: 1px solid rgba(13, 148, 136, 0.3);
+      color: #0f766e;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .showcase-title {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 12px;
+      color: #0f172a;
+    }
+    .showcase-desc {
+      font-size: 15px;
+      color: #475569;
+      line-height: 1.65;
+    }
+
+    /* 3 大全新范式网格 */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      max-width: 1260px;
+      width: 100%;
+      margin-bottom: 40px;
+    }
+
+    .paradigm-card {
+      background: #ffffff;
+      border: 1px solid rgba(226, 232, 240, 0.8);
+      border-radius: 22px;
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
+    }
+    .paradigm-card:hover {
+      transform: translateY(-6px);
+      border-color: rgba(13, 148, 136, 0.4);
+      box-shadow: 0 16px 36px -4px rgba(15, 23, 42, 0.1);
+    }
+    .paradigm-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, transparent, var(--accent-bar), transparent);
+    }
+
+    .card-1 { --accent-bar: #0d9488; }
+    .card-2 { --accent-bar: #0284c7; }
+    .card-3 { --accent-bar: #6366f1; }
+
+    .card-icon-banner {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 18px;
+    }
+    .card-1 .card-icon-banner { background: #ccfbf1; color: #0d9488; }
+    .card-2 .card-icon-banner { background: #e0f2fe; color: #0284c7; }
+    .card-3 .card-icon-banner { background: #e0e7ff; color: #4f46e5; }
+
+    .card-name { font-size: 18px; font-weight: 800; margin-bottom: 6px; color: #0f172a; }
+    .card-style-tag { font-size: 11.5px; color: #64748b; font-weight: 700; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .card-body-text { font-size: 13.5px; color: #334155; line-height: 1.65; margin-bottom: 22px; flex: 1; }
+
+    .feature-list {
+      list-style: none;
+      margin-bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .feature-item {
+      font-size: 12.5px;
+      color: #475569;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .feature-item .material-symbols-outlined { font-size: 16px; color: #0d9488; }
+
+    .btn-launch {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 13px;
+      border-radius: 14px;
+      font-size: 13.5px;
+      font-weight: 700;
+      text-decoration: none;
+      color: white;
+      transition: all 0.2s;
+    }
+    .card-1 .btn-launch { background: linear-gradient(135deg, #0d9488, #047857); box-shadow: 0 4px 14px rgba(13, 148, 136, 0.3); }
+    .card-2 .btn-launch { background: linear-gradient(135deg, #0284c7, #0369a1); box-shadow: 0 4px 14px rgba(2, 132, 199, 0.3); }
+    .card-3 .btn-launch { background: linear-gradient(135deg, #6366f1, #4338ca); box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3); }
+    .btn-launch:hover { transform: translateY(-2px); opacity: 0.95; }
+
+    .benchmark-bar {
+      background: #ffffff;
+      border: 1px dashed #cbd5e1;
+      border-radius: 14px;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      max-width: 1260px;
+      font-size: 13px;
+      color: #475569;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="showcase-header">
+    <div class="badge-hero">
+      <span class="material-symbols-outlined" style="font-size:16px;">accessibility_new</span>
+      人体解剖图全线回归 · 3 种完全不同的结构范式
+    </div>
+    <h1 class="showcase-title">解剖透视图 × 数字化临床工作台 3 款截然不同方案</h1>
+    <p class="showcase-desc">
+      应你的要求，<strong>全面召回核心标志性的【人体解剖图】</strong>，并彻底拉开 3 个方案的架构差异：从<strong>双翼左右对称驾驶舱</strong>、到<strong>中央全息 Bento 环岛</strong>、再到<strong>三栏专业纵深档案流</strong>，提供 3 种完全不同的交互体验：
+    </p>
+  </div>
+
+  <div class="cards-grid">
+
+    <!-- 方案一 -->
+    <div class="paradigm-card card-1">
+      <div>
+        <div class="card-icon-banner">
+          <span class="material-symbols-outlined">dashboard</span>
+        </div>
+        <div class="card-name">方案一 · 双翼解剖驾驶舱</div>
+        <div class="card-style-tag">左右对称 · 透光解剖投影台 · 联动事实高亮</div>
+        <p class="card-body-text">
+          <strong>左翼为独立人体解剖透视投影台</strong>（半透明人身轮廓、肺叶与 L2 骨折发光脉冲标点），<strong>右翼为全量 Wiki 深度工作台</strong>。点击左侧人体器官，右侧 Wiki 自动翻阅并滚动高亮对应条目！
+        </p>
+        <ul class="feature-list">
+          <li class="feature-item"><span class="material-symbols-outlined">check_circle</span>左人体右病历，视野极其开阔平衡</li>
+          <li class="feature-item"><span class="material-symbols-outlined">check_circle</span>人体带动态脉冲发光标点与快捷器官条</li>
+          <li class="feature-item"><span class="material-symbols-outlined">check_circle</span>点击器官联动高亮右侧临床事实流</li>
+        </ul>
+      </div>
+      <a class="btn-launch" href="/demo_cockpit.html">
+        <span>体验方案一 (双翼驾驶舱)</span>
+        <span class="material-symbols-outlined" style="font-size:16px;">arrow_forward</span>
+      </a>
+    </div>
+
+    <!-- 方案二 -->
+    <div class="paradigm-card card-2">
+      <div>
+        <div class="card-icon-banner">
+          <span class="material-symbols-outlined">view_in_ar</span>
+        </div>
+        <div class="card-name">方案二 · 全息解剖环形 Bento 岛</div>
+        <div class="card-style-tag">苹果环绕式 Bento · 全息人体居中 · 悬浮同频光晕</div>
+        <p class="card-body-text">
+          <strong>正中央是一尊纯净垂直的人体透视立轴</strong>，四周像行星般环绕 4 大系统的 Bento 数据卡（呼吸、骨骼、内分泌、皮肤）。鼠标悬浮任何卡片，中央人体对应器官立刻泛出发光晕，下方展开核心百科。
+        </p>
+        <ul class="feature-list">
+          <li class="feature-item"><span class="material-symbols-outlined">check_circle</span>中央人体立柱与环形 Bento 卡片完美结合</li>
+          <li class="feature-item"><span class="material-symbols-outlined">check_circle</span>卡片与人体器官悬浮交互同频发光</li>
+          <li class="feature-item"><span class="material-symbols-outlined">check_circle</span>极具视觉冲击力与现代医疗科技感</li>
+        </ul>
+      </div>
+      <a class="btn-launch" href="/demo_orbit.html">
+        <span>体验方案二 (环形 Bento 岛)</span>
+        <span class="material-symbols-outlined" style="font-size:16px;">arrow_forward</span>
+      </a>
+    </div>
+
+    <!-- 方案三 -->
+    <div class="paradigm-card card-3">
+      <div>
+        <div class="card-icon-banner">
+          <span class="material-symbols-outlined">view_column</span>
+        </div>
+        <div class="card-name">方案三 · 三栏纵深解剖与时间轴流</div>
+        <div class="card-style-tag">专业临床三栏 · 解剖病理立柱 · 诊疗时间轴</div>
+        <p class="card-body-text">
+          专为高年资临床医生与个案管理师设计的<strong>三栏纵深工作站</strong>：左侧名录导航，中间为常驻的「解剖透视立柱 + 系统负荷指数条」，右侧为主治时间轴发展流与循证事实，高密度且层次分明。
+        </p>
+        <ul class="feature-list">
+          <li class="feature-item"><span class="material-symbols-outlined">check_circle</span>中间常驻解剖病理立柱与受损百分比仪表</li>
+          <li class="feature-item"><span class="material-symbols-outlined">check_circle</span>右侧融合诊疗时间轴与百科事实流</li>
+          <li class="feature-item"><span class="material-symbols-outlined">check_circle</span>信息密度极高，特别适合多系统复杂重症追踪</li>
+        </ul>
+      </div>
+      <a class="btn-launch" href="/demo_timeline.html">
+        <span>体验方案三 (三栏纵深工作台)</span>
+        <span class="material-symbols-outlined" style="font-size:16px;">arrow_forward</span>
+      </a>
+    </div>
+
+  </div>
+
+  <div class="benchmark-bar">
+    <div>
+      <span>查看所有原型方案：</span>
+      <span style="color:#94a3b8; margin-left:6px;">端口 :5150 已全天候就绪，支持在浏览器中即时对比切换</span>
+    </div>
+    <div style="display:flex; gap:16px;">
+      <a href="/demo_cockpit.html" style="color:#0d9488; font-weight:700; text-decoration:none;">方案一</a>
+      <a href="/demo_orbit.html" style="color:#0284c7; font-weight:700; text-decoration:none;">方案二</a>
+      <a href="/demo_timeline.html" style="color:#6366f1; font-weight:700; text-decoration:none;">方案三</a>
+    </div>
+  </div>
+
+</body>
+</html>

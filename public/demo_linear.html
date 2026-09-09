@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki · Linear 极客临床驾驶舱 (Demo 1)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --sidebar-bg: #0d121f;
+      --card-bg: rgba(22, 30, 49, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-hover: rgba(30, 41, 66, 0.85);
+      --primary: #3b82f6;
+      --primary-glow: rgba(59, 130, 246, 0.25);
+      --accent-cyan: #06b6d4;
+      --danger: #f43f5e;
+      --danger-bg: rgba(244, 63, 94, 0.12);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.12);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-faint: #475569;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 顶部导航与遥测条 */
+    .top-telemetry-bar {
+      height: 52px;
+      background: rgba(13, 18, 31, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      z-index: 50;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 12px var(--primary-glow);
+    }
+    .brand-logo .material-symbols-outlined { font-size: 18px; color: white; }
+    .brand-name { font-size: 14px; font-weight: 700; letter-spacing: -0.02em; }
+    .badge-pill {
+      font-size: 10.5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 600;
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    /* 快捷切换器与遥测指示 */
+    .telemetry-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .hud-capsule {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    .hud-capsule.alert-high {
+      background: var(--danger-bg);
+      border-color: rgba(244, 63, 94, 0.3);
+      color: #fda4af;
+    }
+    .hud-val { font-family: var(--font-mono); font-weight: 700; color: white; }
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .btn-action {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn-action:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    .btn-action.primary {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border: none;
+      box-shadow: 0 0 12px rgba(37, 99, 235, 0.4);
+    }
+
+    /* 主布局 */
+    .app-workspace {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* 极简侧栏 */
+    .patients-sidebar {
+      width: 260px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-search {
+      padding: 12px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .search-input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      color: white;
+      padding: 6px 10px;
+      font-size: 12px;
+      outline: none;
+    }
+    .search-input:focus { border-color: var(--primary); }
+
+    .patient-list-nav {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .patient-item-card {
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+    .patient-item-card:hover { background: rgba(255, 255, 255, 0.03); }
+    .patient-item-card.active {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+    .patient-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .p-name { font-size: 13px; font-weight: 600; color: #f8fafc; }
+    .p-tag {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+    }
+    .p-tag.icu { background: var(--danger-bg); color: #f43f5e; }
+    .p-tag.chronic { background: var(--warning-bg); color: #f59e0b; }
+    .p-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* 中央双幕驾驶舱 */
+    .cockpit-view {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      overflow: hidden;
+    }
+
+    /* 左栏：结构化医学真理链 (Structured Wiki Facts) */
+    .wiki-column {
+      border-right: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      background: rgba(9, 13, 22, 0.5);
+    }
+    .column-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(13, 18, 31, 0.4);
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(10px);
+      z-index: 10;
+    }
+    .col-title-group h2 { font-size: 15px; font-weight: 700; color: white; }
+    .col-subtitle { font-size: 11.5px; color: var(--text-muted); }
+
+    .wiki-content-stream {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 820px;
+    }
+
+    /* 临床红线警示卡片 */
+    .clinical-redline-callout {
+      background: linear-gradient(135deg, rgba(244, 63, 94, 0.15) 0%, rgba(225, 29, 72, 0.05) 100%);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      border-left: 4px solid var(--danger);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+    .redline-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #f43f5e;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+    .redline-body { font-size: 12.5px; color: #fecdd3; line-height: 1.6; }
+
+    /* AI 认知速览晶石卡片 */
+    .cognitive-ai-prism {
+      background: linear-gradient(135deg, rgba(30, 41, 66, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      border-radius: 12px;
+      padding: 16px 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    .prism-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .prism-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #60a5fa;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .prism-score {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .prism-text { font-size: 13px; color: #cbd5e1; line-height: 1.65; }
+
+    /* 观察点块 (Observation Card) */
+    .observation-node {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .observation-node:hover {
+      border-color: rgba(59, 130, 246, 0.4);
+      background: var(--card-hover);
+      transform: translateY(-1px);
+    }
+    .node-meta-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 11px;
+    }
+    .node-type-badge {
+      color: #38bdf8;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .trace-link {
+      color: var(--accent-cyan);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .node-content { font-size: 13px; color: #f1f5f9; line-height: 1.6; }
+
+    /* 右栏：多模态溯源证据流 (Multi-modal Evidence Drawer) */
+    .evidence-column {
+      background: rgba(13, 18, 31, 0.3);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .evidence-stream {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .evidence-card {
+      background: rgba(18, 24, 38, 0.7);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+    .evidence-card.highlighted {
+      border-color: #3b82f6;
+      box-shadow: 0 0 16px rgba(59, 130, 246, 0.3);
+      background: rgba(30, 41, 66, 0.9);
+    }
+    .evidence-type-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .evidence-type {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .evidence-timestamp {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-faint);
+    }
+    .evidence-body {
+      font-size: 12.5px;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+
+    /* 语音声波可视化仿真 */
+    .audio-waveform-bar {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 24px;
+      margin: 8px 0;
+      padding: 0 10px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+    }
+    .wave-line {
+      width: 3px;
+      background: #06b6d4;
+      border-radius: 2px;
+      animation: wave 1.2s infinite ease-in-out;
+    }
+    @keyframes wave {
+      0%, 100% { height: 4px; opacity: 0.3; }
+      50% { height: 18px; opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部高精遥测条 (Linear Telemetry Bar) -->
+  <header class="top-telemetry-bar">
+    <div class="brand-section">
+      <div class="brand-logo">
+        <span class="material-symbols-outlined">hub</span>
+      </div>
+      <div class="brand-name">LLMWiki 临床驾驶舱</div>
+      <span class="badge-pill">Cockpit X</span>
+    </div>
+
+    <!-- 核心体征遥测胶囊 -->
+    <div class="telemetry-strip">
+      <div class="hud-capsule alert-high">
+        <span class="material-symbols-outlined" style="font-size:15px; color:#f43f5e;">monitor_heart</span>
+        <span>收缩压(峰值):</span>
+        <span class="hud-val">198/112</span>
+        <span style="font-size:10px;">mmHg</span>
+      </div>
+      <div class="hud-capsule">
+        <span class="material-symbols-outlined" style="font-size:15px; color:#38bdf8;">air</span>
+        <span>血氧:</span>
+        <span class="hud-val">96%</span>
+      </div>
+      <div class="hud-capsule">
+        <span class="pulse-dot"></span>
+        <span>认知融入:</span>
+        <span class="hud-val">4/4 源事件</span>
+      </div>
+    </div>
+
+    <!-- 右侧操作 -->
+    <div class="top-actions">
+      <button class="btn-action primary" onclick="alert('已重新调起实时事实提取引擎！')">
+        <span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span>
+        实时认知重构
+      </button>
+      <button class="btn-action" onclick="window.location.href='/demos.html'">
+        <span class="material-symbols-outlined" style="font-size:14px;">view_agenda</span>
+        所有 Demo 切换
+      </button>
+    </div>
+  </header>
+
+  <!-- 工作区 -->
+  <div class="app-workspace">
+
+    <!-- 极简侧栏 -->
+    <aside class="patients-sidebar">
+      <div class="sidebar-search">
+        <input class="search-input" placeholder="按姓名、病案号、体征搜索...">
+      </div>
+      <div class="patient-list-nav">
+        <!-- 患者 1 (当前选中) -->
+        <div class="patient-item-card active">
+          <div class="patient-title-row">
+            <span class="p-name">案例三：ICU重度脑出血急救</span>
+            <span class="p-tag icu">ICU危重</span>
+          </div>
+          <div class="p-desc">男 · 53岁 · 断药2年致左基底节出血</div>
+        </div>
+        <!-- 患者 2 -->
+        <div class="patient-item-card">
+          <div class="patient-title-row">
+            <span class="p-name">案例一：慢阻肺合并脊柱骨折</span>
+            <span class="p-tag chronic">特级护理</span>
+          </div>
+          <div class="p-desc">男 · 73岁 · 咳嗽摔倒致L2骨折</div>
+        </div>
+        <!-- 患者 3 -->
+        <div class="patient-item-card">
+          <div class="patient-title-row">
+            <span class="p-name">案例二：克罗恩病穿戴监测</span>
+            <span class="p-tag">维持期</span>
+          </div>
+          <div class="p-desc">男 · 26岁 · 肠道排便与心率遥测</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中央双幕驾驶舱 -->
+    <main class="cockpit-view">
+
+      <!-- 左幕：医学百科与事实链 -->
+      <section class="wiki-column">
+        <div class="column-header">
+          <div class="col-title-group">
+            <h2>医学事实沉淀链 (Clinical Truths Stream)</h2>
+            <div class="col-subtitle">由大模型对 120电话、急诊检查单及ICU日志实时提炼</div>
+          </div>
+          <div style="font-size:12px; color:var(--accent-cyan); font-family:var(--font-mono);">
+            页面: index.md
+          </div>
+        </div>
+
+        <div class="wiki-content-stream">
+          <!-- 致命红线警示 -->
+          <div class="clinical-redline-callout">
+            <div class="redline-header">
+              <span class="material-symbols-outlined" style="font-size:18px;">crisis_alert</span>
+              致命红线：颅内高压与脑疝防范
+            </div>
+            <div class="redline-body">
+              长期高血压擅自停药2年，突发脑溢血。处于脑水肿高峰期，严控平均动脉压维持收缩压在 130-140 mmHg。神志嗜睡/浅昏迷，留置气管插管、深静脉管、胃管、尿管等4种高危管路，防非计划性拔管！
+            </div>
+          </div>
+
+          <!-- AI 认知晶石 -->
+          <div class="cognitive-ai-prism">
+            <div class="prism-head">
+              <div class="prism-title">
+                <span class="material-symbols-outlined" style="font-size:16px;">sparkles</span>
+                AI 临床认知摘要
+              </div>
+              <span class="prism-score">置信度: 98.4%</span>
+            </div>
+            <div class="prism-text">
+              患者为53岁男性，因断药发病突发失语偏瘫。急诊CT提示左基底节区大量出血破入脑室，ICU目前执行特级护理与呼吸机辅助通气。
+            </div>
+          </div>
+
+          <!-- 结构化事实节点 1 -->
+          <div class="observation-node" onclick="highlightEvidence('log_c3_1')">
+            <div class="node-meta-row">
+              <span class="node-type-badge">
+                <span class="material-symbols-outlined" style="font-size:14px;">vital_signs</span>
+                急性生理信号
+              </span>
+              <span class="trace-link">
+                <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+                证据溯源 #log_c3_1
+              </span>
+            </div>
+            <div class="node-content">
+              突发失语、右侧偏瘫、口角歪斜，血压测得 198/112 mmHg。家属呼叫 120 紧急出车。
+            </div>
+          </div>
+
+          <!-- 结构化事实节点 2 -->
+          <div class="observation-node" onclick="highlightEvidence('log_c3_2')">
+            <div class="node-meta-row">
+              <span class="node-type-badge">
+                <span class="material-symbols-outlined" style="font-size:14px;">radiology</span>
+                化验影像发现
+              </span>
+              <span class="trace-link">
+                <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+                证据溯源 #log_c3_2
+              </span>
+            </div>
+            <div class="node-content">
+              急诊头部 CT 示左侧基底节区高密度血肿影，出血量约 35ml，周围见明显水肿带，中线轻度受压。
+            </div>
+          </div>
+
+          <!-- 结构化事实节点 3 -->
+          <div class="observation-node" onclick="highlightEvidence('log_c3_3')">
+            <div class="node-meta-row">
+              <span class="node-type-badge">
+                <span class="material-symbols-outlined" style="font-size:14px;">emergency</span>
+                ICU特级干预措施
+              </span>
+              <span class="trace-link">
+                <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+                证据溯源 #log_c3_3
+              </span>
+            </div>
+            <div class="node-content">
+              行气管插管呼吸机辅助通气，乌拉地尔微量泵持续静脉降压，留置胃管及导尿管，床头抬高 30-40° 降颅压。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右幕：多模态原始证据回溯抽屉 -->
+      <section class="evidence-column">
+        <div class="column-header">
+          <div class="col-title-group">
+            <h2>原始证据回溯轴 (Evidence Sources)</h2>
+            <div class="col-subtitle">点击左侧任意医学结论，即刻高亮对应日志</div>
+          </div>
+          <span style="font-size:11px; color:#94a3b8;">共 3 条临床日志</span>
+        </div>
+
+        <div class="evidence-stream">
+          <!-- 证据 1 -->
+          <div class="evidence-card" id="card_log_c3_1">
+            <div class="evidence-type-header">
+              <span class="evidence-type">
+                <span class="material-symbols-outlined" style="font-size:16px; color:#f59e0b;">call</span>
+                120 急救电话录音 (Phone)
+              </span>
+              <span class="evidence-timestamp">05-28 07:15</span>
+            </div>
+            <div class="audio-waveform-bar">
+              <div class="wave-line" style="animation-delay: 0.1s"></div>
+              <div class="wave-line" style="animation-delay: 0.3s"></div>
+              <div class="wave-line" style="animation-delay: 0.2s"></div>
+              <div class="wave-line" style="animation-delay: 0.5s"></div>
+              <div class="wave-line" style="animation-delay: 0.4s"></div>
+              <div class="wave-line" style="animation-delay: 0.6s"></div>
+              <span style="font-size:11px; color:#94a3b8; margin-left:8px; font-family:var(--font-mono);">01:42 录音已转录</span>
+            </div>
+            <div class="evidence-body">
+              “喂120吗！我爱人早上突然说不出话了，右手右脚动不了，整个人瘫在地上！测了血压高压快200了，快来人啊！”
+            </div>
+          </div>
+
+          <!-- 证据 2 -->
+          <div class="evidence-card" id="card_log_c3_2">
+            <div class="evidence-type-header">
+              <span class="evidence-type">
+                <span class="material-symbols-outlined" style="font-size:16px; color:#38bdf8;">document_scanner</span>
+                急诊CT放射报告 (OCR)
+              </span>
+              <span class="evidence-timestamp">05-28 08:30</span>
+            </div>
+            <div class="evidence-body">
+              【CT诊断报告单】影像所见：左侧基底节区团块状高密度影，边界清，CT值约 65-75HU，出血量约 35ml，左侧侧脑室受压变窄，中线向右侧移位约 0.4cm。
+            </div>
+          </div>
+
+          <!-- 证据 3 -->
+          <div class="evidence-card" id="card_log_c3_3">
+            <div class="evidence-type-header">
+              <span class="evidence-type">
+                <span class="material-symbols-outlined" style="font-size:16px; color:#10b981;">clinical_notes</span>
+                ICU重症交接与护理记录
+              </span>
+              <span class="evidence-timestamp">05-28 10:00</span>
+            </div>
+            <div class="evidence-body">
+              患者深静脉置管通畅，乌拉地尔 5mg/h 泵入中，当前血压 142/86 mmHg。留置气管插管固定牢固，予肢体约束带，避免谵妄拔管。
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    function highlightEvidence(logId) {
+      document.querySelectorAll('.evidence-card').forEach(c => c.classList.remove('highlighted'));
+      const card = document.getElementById('card_' + logId);
+      if (card) {
+        card.classList.add('highlighted');
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  </script>
+</body>
+</html>

@@ -36,10 +36,11 @@ const SAMPLE_TEMPLATES = {
 
 const getPageDisplayName = (filename) => {
   switch (filename) {
-    case 'index.md': return '📋 客户健康首页';
-    case 'medical_history.md': return '🧬 既往史时间轴';
-    case 'medication_plan.md': return '💊 用药方案与医嘱';
-    case 'communication_timeline.md': return '📅 随访与原始证据';
+    case 'index.md': return '📋 健康首页';
+    case 'medical_history.md': return '🧬 既往病史';
+    case 'medication_plan.md': return '💊 用药方案';
+    case 'communication_timeline.md': return '📅 随访证据';
+    case 'user_profile.md': return '👤 用户画像';
     default: return filename;
   }
 };
@@ -107,10 +108,12 @@ function extractVitalSigns(wikiPages) {
 export default function App() {
   // ── 状态管理 ──
   const [clients, setClients] = useState([]);
-  const [selectedClientId, setSelectedClientId] = useState(null);
+  const urlParamClient = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('clientId') : null;
+  const [selectedClientId, setSelectedClientId] = useState(urlParamClient);
   const [selectedClient, setSelectedClient] = useState(null);
   const [wikiPages, setWikiPages] = useState({});
-  const [activeWikiPage, setActiveWikiPage] = useState('index.md');
+  const urlParamPage = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('page') : null;
+  const [activeWikiPage, setActiveWikiPage] = useState(urlParamPage || 'index.md');
   const [logs, setLogs] = useState([]);
   const [selectedOrgan, setSelectedOrgan] = useState('lung');
 
@@ -123,9 +126,14 @@ export default function App() {
   const [showLogModal, setShowLogModal] = useState(false);
   const [newLogData, setNewLogData] = useState({ type: 'phone', title: '', content: '' });
 
+  // 维基手动编辑状态
+  const [isEditingWiki, setIsEditingWiki] = useState(false);
+  const [wikiEditContent, setWikiEditContent] = useState('');
+
   // 状态标记
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [consolidating, setConsolidating] = useState(false);
   const [alert, setAlert] = useState(null);
   const [prevWikiPages, setPrevWikiPages] = useState({});
   const [showDiff, setShowDiff] = useState(false);
@@ -133,6 +141,9 @@ export default function App() {
   // 溯源抽屉状态
   const [selectedLogForTrace, setSelectedLogForTrace] = useState(null);
   const [tracePanelOpen, setTracePanelOpen] = useState(false);
+
+  // 日志列表抽屉状态
+  const [logsDrawerOpen, setLogsDrawerOpen] = useState(false);
 
   // 提示 Toast 助手
   const showToast = (message, type = 'info') => {
@@ -269,7 +280,9 @@ export default function App() {
           return 0;
         });
         setClients(sorted);
-        if (!selectedClientId || !sorted.some(c => c.id === selectedClientId)) {
+        if (urlParamClient && sorted.some(c => c.id === urlParamClient)) {
+          setSelectedClientId(urlParamClient);
+        } else if (!selectedClientId || !sorted.some(c => c.id === selectedClientId)) {
           setSelectedClientId(sorted[0].id);
         }
         return;
@@ -357,6 +370,96 @@ export default function App() {
     }
   };
 
+  const handleDownloadWiki = () => {
+    if (!selectedClient) return;
+    const clientName = (selectedClient.name || 'patient').split('：')[0].replace(/\s+/g, '_');
+    const content = `# ${selectedClient.name} - 健康Wiki全集档案\n\n` +
+      `> **患者基本信息**: ${selectedClient.gender || '未知'} · ${selectedClient.age ? `${selectedClient.age}岁` : '未知'} | **电话**: ${selectedClient.phone || '无'} | **建档日期**: ${new Date(selectedClient.createdAt || Date.now()).toLocaleDateString()}\n` +
+      `> **医疗红线与过敏史**: ${selectedClient.allergies || '无已知药物过敏'}\n\n` +
+      `---\n\n` +
+      `## 1. 客户健康首页 (index.md)\n\n${wikiPages['index.md'] || '*(暂无内容)*'}\n\n` +
+      `---\n\n` +
+      `## 2. 既往病史与时间轴 (medical_history.md)\n\n${wikiPages['medical_history.md'] || '*(暂无内容)*'}\n\n` +
+      `---\n\n` +
+      `## 3. 用药方案与生活医嘱 (medication_plan.md)\n\n${wikiPages['medication_plan.md'] || '*(暂无内容)*'}\n\n` +
+      `---\n\n` +
+      `## 4. 随访与原始证据 (communication_timeline.md)\n\n${wikiPages['communication_timeline.md'] || '*(暂无内容)*'}`;
+
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${clientName}_健康Wiki.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast(`已成功导出 ${clientName}_健康Wiki.md`, 'success');
+  };
+
+  const handleDeleteClient = async () => {
+    if (!selectedClient) return;
+    if (!window.confirm(`确定要删除患者【${selectedClient.name}】的全部健康档案及 Wiki 页面吗？此操作不可撤销。`)) return;
+    try {
+      const res = await fetch(`/api/clients/${selectedClientId}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast(`已成功删除客户 ${selectedClient.name}`, 'success');
+        setSelectedClientId(null);
+        await fetchClients();
+      } else {
+        const err = await res.json();
+        showToast(err.error || '删除客户失败', 'error');
+      }
+    } catch (err) {
+      showToast('删除操作失败: ' + err.message, 'error');
+    }
+  };
+
+  const handleOpenEditModal = () => {
+    if (!selectedClient) return;
+    setEditClientData({
+      name: selectedClient.name,
+      age: selectedClient.age || '',
+      gender: selectedClient.gender || '男',
+      phone: selectedClient.phone || '',
+      allergies: selectedClient.allergies || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const handleDownloadCurrentPage = () => {
+    if (!selectedClient) return;
+    const content = wikiPages[activeWikiPage] || '';
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const safeName = (selectedClient.name || 'patient').split('：')[0].replace(/\s+/g, '_');
+    link.setAttribute('download', `${safeName}_${activeWikiPage}`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast(`已下载当前页 ${activeWikiPage}`, 'success');
+  };
+
+  const handleSaveWikiPage = async () => {
+    try {
+      const res = await fetch(`/api/clients/${selectedClientId}/wiki/${activeWikiPage}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: wikiEditContent })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '保存失败');
+      showToast(`${getPageDisplayName(activeWikiPage)} 页面手动保存成功`, 'success');
+      setIsEditingWiki(false);
+      fetchClientDetails(selectedClientId);
+    } catch (err) {
+      showToast(`保存失败: ${err.message}`, 'error');
+    }
+  };
+
   const handleAddLog = async (e) => {
     e.preventDefault();
     if (!newLogData.content) return;
@@ -403,14 +506,48 @@ export default function App() {
     }
   };
 
+  const handleConsolidate = async () => {
+    if (!window.confirm(`确认对"${selectedClient?.name}"的档案进行 AI 整理？\n\n整理将去重合并重复条目、矛盾裁决取最新、清洗操作噪声。过程约 30-60 秒。`)) return;
+    try {
+      setConsolidating(true);
+      showToast('🧹 AI 档案整理中，请稍候（约 30-60 秒）...', 'info');
+      const res = await fetch(`/api/clients/${selectedClientId}/consolidate`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        const saved = data.totalCharsSaved || 0;
+        const rollbacks = data.rolledBack?.length ? `，${data.rolledBack.join('/')} 回滚保护` : '';
+        showToast(`✅ 档案整理完成！节省 ${saved} 字符${rollbacks}`, 'success');
+        fetchClientDetails(selectedClientId);
+      } else {
+        showToast(data.error || '整理失败', 'error');
+      }
+    } catch (err) {
+      showToast('档案整理网络错误', 'error');
+    } finally {
+      setConsolidating(false);
+    }
+  };
+
   const handleOpenReference = (logId) => {
+    // 精确 ID 匹配
     const foundLog = logs.find(l => l.id === logId || l.id.includes(logId) || logId.includes(l.id));
     if (foundLog) {
       setSelectedLogForTrace(foundLog);
       setTracePanelOpen(true);
-    } else {
-      showToast(`未能查找到 ID 为 ${logId} 的原始记录`, 'error');
+      return;
     }
+    // 按时间戳前缀尝试模糊匹配（log_时间戳_随机码 → 提取时间戳部分）
+    const tsMatch = logId.match(/^log_(\d+)/);
+    if (tsMatch) {
+      const ts = tsMatch[1];
+      const byTs = logs.find(l => l.id.includes(ts));
+      if (byTs) {
+        setSelectedLogForTrace(byTs);
+        setTracePanelOpen(true);
+        return;
+      }
+    }
+    showToast(`溯源记录未找到 (${logId})，该记录可能已删除或尚未同步`, 'error');
   };
 
   const handleSelectionAction = async (action, text) => {
@@ -471,7 +608,7 @@ export default function App() {
             <span className="material-symbols-outlined">vital_signs</span>
           </div>
           <div>
-            <div className="brand-title">LLMWiki 仿生视界</div>
+            <div className="brand-title">LLM Health Wiki</div>
             <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
               <span className="brand-badge">双翼驾驶舱 · 正式系统</span>
             </div>
@@ -521,15 +658,19 @@ export default function App() {
                   {selectedClient.name.charAt(0) || '患'}
                 </div>
                 <div className="patient-title-group">
-                  <h1>
-                    <span>{selectedClient.name.split('：')[1] || selectedClient.name}</span>
-                    <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-muted)', background: '#f1f5f9', padding: '2px 8px', borderRadius: '6px' }}>
+                  <div className="patient-heading-row">
+                    <h1 className="patient-name-title">
+                      {selectedClient.name.split('：')[1] || selectedClient.name}
+                    </h1>
+                    <span className="patient-demographic-badge">
                       {selectedClient.gender || '未知'} · {selectedClient.age ? `${selectedClient.age}岁` : '—'}
                     </span>
-                    {clinicalBadges.map((b, i) => (
-                      <span key={i} className={`pill-badge ${b.type}`}>{b.text}</span>
-                    ))}
-                  </h1>
+                    <div className="patient-badges-wrap">
+                      {clinicalBadges.map((b, i) => (
+                        <span key={i} className={`pill-badge ${b.type}`}>{b.text}</span>
+                      ))}
+                    </div>
+                  </div>
                   <div className="patient-tags-line">
                     <span>📞 {selectedClient.phone || '暂无电话'}</span>
                     {patientLocation && (
@@ -539,77 +680,120 @@ export default function App() {
                       </>
                     )}
                     <span>·</span>
-                    <span style={{ color: selectedClient.allergies ? '#e11d48' : '#0d9488', fontWeight: '600' }}>
-                      {selectedClient.allergies ? `⚠️ ${selectedClient.allergies}` : '✓ 暂无已知药物过敏登记'}
-                    </span>
+                    {(() => {
+                      const allergies = selectedClient.allergies || '';
+                      const hasAlert = allergies && !allergies.startsWith('无') && !allergies.startsWith('暂无') && !allergies.includes('无已知药物过敏');
+                      return (
+                        <span style={{ color: hasAlert ? '#e11d48' : '#0d9488', fontWeight: '600' }}>
+                          {hasAlert ? `⚠️ ${allergies}` : `✓ ${allergies || '暂无已知药物过敏登记'}`}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
 
-              {/* 遥测体征胶囊与同步按钮 */}
+              {/* 遥测体征胶囊与操作控制台 */}
               <div className="header-right-group">
                 <div className="vitals-horizon-row">
-                  <div className="vital-horizon-pill">
-                    <span className="material-symbols-outlined" style={{ color: '#f43f5e', fontSize: '18px' }}>air</span>
+                  <div className="vital-horizon-pill" title="血氧饱和度 (SpO2)">
+                    <div className="vital-horizon-icon-box" style={{ background: '#ffe4e6', color: '#f43f5e' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>monitor_heart</span>
+                    </div>
                     <div>
                       <div className={`vital-horizon-val ${vitals.spo2.className}`}>{vitals.spo2.value}</div>
-                      <div className="vital-horizon-meta">血氧 (SpO2)</div>
+                      <div className="vital-horizon-meta">血氧 SpO2</div>
                     </div>
                   </div>
 
-                  <div className="vital-horizon-pill">
-                    <span className="material-symbols-outlined" style={{ color: '#f59e0b', fontSize: '18px' }}>water_drop</span>
+                  <div className="vital-horizon-pill" title="指血 (mmol/L)">
+                    <div className="vital-horizon-icon-box" style={{ background: '#fef3c7', color: '#f59e0b' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>water_drop</span>
+                    </div>
                     <div>
                       <div className={`vital-horizon-val ${vitals.bg.className}`}>{vitals.bg.value}</div>
                       <div className="vital-horizon-meta">指血 mmol/L</div>
                     </div>
                   </div>
 
-                  <div className="vital-horizon-pill">
-                    <span className="material-symbols-outlined" style={{ color: '#d97706', fontSize: '18px' }}>lungs</span>
+                  <div className="vital-horizon-pill" title="呼吸频率 (次/分)">
+                    <div className="vital-horizon-icon-box" style={{ background: '#e0f2fe', color: '#0284c7' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>air</span>
+                    </div>
                     <div>
                       <div className={`vital-horizon-val ${vitals.resp.className}`}>{vitals.resp.value}</div>
                       <div className="vital-horizon-meta">呼吸 次/分</div>
                     </div>
                   </div>
 
-                  <div className="vital-horizon-pill">
-                    <span className="material-symbols-outlined" style={{ color: '#0d9488', fontSize: '18px' }}>favorite</span>
+                  <div className="vital-horizon-pill" title="血压与体温">
+                    <div className="vital-horizon-icon-box" style={{ background: '#ccfbf1', color: '#0d9488' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>thermostat</span>
+                    </div>
                     <div>
                       <div className="vital-horizon-val">{vitals.bp.value}</div>
-                      <div className="vital-horizon-meta">血压 · {vitals.temp.value}</div>
+                      <div className="vital-horizon-meta">血压·{vitals.temp.value}</div>
                     </div>
                   </div>
                 </div>
 
-                <button
-                  className="btn-action-sync"
-                  onClick={handleLlmSync}
-                  disabled={syncing}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', animation: syncing ? 'spin 1s linear infinite' : 'none' }}>sync</span>
-                  <span>{syncing ? '同步中...' : '同步 Wiki'}</span>
-                </button>
+                <div className="header-actions-row">
+                  <button
+                    className="btn-action-sync"
+                    onClick={handleLlmSync}
+                    disabled={syncing || consolidating}
+                    title="基于最新沟通日志由 AI 同步刷新健康Wiki"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', animation: syncing ? 'spin 1s linear infinite' : 'none' }}>sync</span>
+                    <span>{syncing ? '同步中...' : '同步 Wiki'}</span>
+                  </button>
 
-                <button
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: '12px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    fontSize: '12px',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                    color: '#334155',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                  onClick={() => setShowLogModal(true)}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#0d9488' }}>add_circle</span>
-                  <span>录入沟通记录</span>
-                </button>
+                  <button
+                    className="btn-action-outline"
+                    onClick={handleConsolidate}
+                    disabled={consolidating || syncing}
+                    title="AI 去重整理：合并重复条目、矛盾裁决取最新、清洗操作噪声"
+                    style={{ color: consolidating ? '#94a3b8' : '#7c3aed' }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: consolidating ? '#94a3b8' : '#7c3aed', animation: consolidating ? 'spin 1s linear infinite' : 'none' }}>auto_fix_high</span>
+                    <span>{consolidating ? '整理中...' : '整理档案'}</span>
+                  </button>
+
+                  <button
+                    className="btn-action-outline"
+                    onClick={() => setShowLogModal(true)}
+                    title="录入电话、企微、化验单OCR或随访记录"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#0d9488' }}>add_circle</span>
+                    <span>录入记录</span>
+                  </button>
+
+                  <button
+                    className="btn-action-outline"
+                    onClick={handleOpenEditModal}
+                    title="修改患者基本信息与过敏史"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#64748b' }}>edit</span>
+                    <span>编辑资料</span>
+                  </button>
+
+                  <button
+                    className="btn-action-outline"
+                    onClick={handleDownloadWiki}
+                    title="导出整套 Markdown 健康维基档案"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#0d9488' }}>download</span>
+                    <span>导出 Wiki</span>
+                  </button>
+
+                  <button
+                    className="btn-action-danger-icon"
+                    onClick={handleDeleteClient}
+                    title="删除该患者全部档案"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>delete</span>
+                  </button>
+                </div>
               </div>
             </header>
 
@@ -625,26 +809,84 @@ export default function App() {
               {/* 右翼：医学百科与临床决策工作台 */}
               <article className="wiki-living-sheet">
                 <div className="sheet-nav-bar">
-                  <div className="sheet-title">
-                    <span className="material-symbols-outlined" style={{ color: 'var(--teal-primary)' }}>menu_book</span>
-                    <span>{getPageDisplayName(activeWikiPage)}</span>
+                  <div className="sheet-tab-pills">
+                    {['index.md', 'medical_history.md', 'medication_plan.md', 'communication_timeline.md', 'user_profile.md']
+                      .filter(page => wikiPages[page])
+                      .map(page => (
+                        <button
+                          key={page}
+                          className={`sheet-tab-btn ${activeWikiPage === page ? 'active' : ''}`}
+                          onClick={() => {
+                            setActiveWikiPage(page);
+                            setIsEditingWiki(false);
+                          }}
+                        >
+                          {getPageDisplayName(page)}
+                        </button>
+                      ))}
                   </div>
 
-                  <div className="sheet-tab-pills">
-                    {['index.md', 'medical_history.md', 'medication_plan.md', 'communication_timeline.md'].map(page => (
+                  <div className="sheet-nav-actions">
+                    <button
+                      className="btn-sheet-action"
+                      onClick={() => setLogsDrawerOpen(true)}
+                      title={`查看 ${logs.length} 条原始沟通记录`}
+                      style={{ position: 'relative' }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>forum</span>
+                      <span>原始日志</span>
+                      {logs.some(l => !l.synced) && (
+                        <span style={{
+                          position: 'absolute', top: '-2px', right: '-2px',
+                          width: '7px', height: '7px', borderRadius: '50%',
+                          background: '#f59e0b', border: '1.5px solid #fff'
+                        }} />
+                      )}
+                    </button>
+
+                    <button
+                      className="btn-sheet-action"
+                      onClick={handleDownloadCurrentPage}
+                      title={`导出当前 ${activeWikiPage}`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>download</span>
+                      <span>导出</span>
+                    </button>
+
+                    {!isEditingWiki ? (
                       <button
-                        key={page}
-                        className={`sheet-tab-btn ${activeWikiPage === page ? 'active' : ''}`}
-                        onClick={() => setActiveWikiPage(page)}
+                        className="btn-sheet-action"
+                        onClick={() => {
+                          setWikiEditContent(wikiPages[activeWikiPage] || '');
+                          setIsEditingWiki(true);
+                        }}
+                        title="手动编辑当前 Markdown 页面"
                       >
-                        {getPageDisplayName(page)}
+                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>edit_note</span>
+                        <span>编辑</span>
                       </button>
-                    ))}
+                    ) : (
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          className="btn-sheet-action save"
+                          onClick={handleSaveWikiPage}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check</span>
+                          <span>保存</span>
+                        </button>
+                        <button
+                          className="btn-sheet-action cancel"
+                          onClick={() => setIsEditingWiki(false)}
+                        >
+                          <span>取消</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* AI 临床核心矛盾策展盒 (仅在首页展示，动态提取当前患者真实摘要) */}
-                {activeWikiPage === 'index.md' && (
+                {activeWikiPage === 'index.md' && !isEditingWiki && (
                   <div className="ai-curated-contradiction">
                     <div className="curated-title">
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -663,18 +905,33 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Markdown 渲染流 */}
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  <HealthWikiRenderer
-                    markdownContent={wikiPages[activeWikiPage]}
-                    prevMarkdownContent={prevWikiPages[activeWikiPage]}
-                    showDiff={showDiff}
-                    logSources={logs}
-                    personMeta={selectedClient}
-                    onOpenReference={handleOpenReference}
-                    onSelectionAction={handleSelectionAction}
-                    isIndexPage={activeWikiPage === 'index.md'}
-                  />
+                {/* Markdown 渲染流 或 手动编辑视窗 */}
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  {isEditingWiki ? (
+                    <div className="wiki-editor-container">
+                      <div className="wiki-editor-hint">
+                        <span>正在编辑 <strong>{getPageDisplayName(activeWikiPage)}</strong> ({activeWikiPage})</span>
+                        <span style={{ color: '#94a3b8' }}>支持标准 Markdown 与引用标注</span>
+                      </div>
+                      <textarea
+                        className="wiki-editor-textarea"
+                        value={wikiEditContent}
+                        onChange={e => setWikiEditContent(e.target.value)}
+                        placeholder="在此输入或修改 Markdown 内容..."
+                      />
+                    </div>
+                  ) : (
+                    <HealthWikiRenderer
+                      markdownContent={wikiPages[activeWikiPage]}
+                      prevMarkdownContent={prevWikiPages[activeWikiPage]}
+                      showDiff={showDiff}
+                      logSources={logs}
+                      personMeta={selectedClient}
+                      onOpenReference={handleOpenReference}
+                      onSelectionAction={handleSelectionAction}
+                      isIndexPage={activeWikiPage === 'index.md'}
+                    />
+                  )}
                 </div>
               </article>
             </div>
@@ -695,7 +952,7 @@ export default function App() {
         )}
       </main>
 
-      {/* ── 原始证据侧拉抽屉 (仅在触发溯源且选中日志时渲染，杜绝右上角残留悬浮Bug) ── */}
+      {/* ── 原始证据侧拉抽屉 (溯源角标点击触发) ── */}
       {tracePanelOpen && selectedLogForTrace && (
         <div className="trace-drawer-backdrop" onClick={() => setTracePanelOpen(false)}>
           <div className="trace-drawer-panel" onClick={e => e.stopPropagation()}>
@@ -730,6 +987,76 @@ export default function App() {
                   {selectedLogForTrace.content}
                 </pre>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 原始日志列表侧拉抽屉 (「原始日志」按钮触发) ── */}
+      {logsDrawerOpen && (
+        <div className="trace-drawer-backdrop" onClick={() => setLogsDrawerOpen(false)}>
+          <div className="trace-drawer-panel" style={{ width: '520px' }} onClick={e => e.stopPropagation()}>
+            <div className="drawer-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="material-symbols-outlined" style={{ color: 'var(--teal-primary)' }}>timeline</span>
+                <span style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>
+                  原始沟通日志 ({logs.length} 条)
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  className="btn-sheet-action"
+                  onClick={() => { setLogsDrawerOpen(false); setShowLogModal(true); }}
+                  style={{ fontSize: '12px', padding: '4px 10px' }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>add_circle</span>
+                  <span>录入记录</span>
+                </button>
+                <button className="btn-close-drawer" onClick={() => setLogsDrawerOpen(false)}>✕</button>
+              </div>
+            </div>
+
+            <div className="drawer-body" style={{ padding: '16px 20px', gap: '12px', display: 'flex', flexDirection: 'column' }}>
+              {logs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '36px', display: 'block', marginBottom: '10px' }}>inbox</span>
+                  暂无任何原始沟通记录，请点击「录入记录」开始
+                </div>
+              ) : (
+                <div style={{ position: 'relative', borderLeft: '2px solid var(--border-color)', marginLeft: '8px', display: 'flex', flexDirection: 'column', gap: '16px', paddingLeft: '20px', paddingBottom: '20px' }}>
+                  {[...logs].reverse().map(log => {
+                    const typeIcon = log.type === 'phone' ? 'phone_in_talk' : log.type === 'video' ? 'videocam' : log.type === 'wechat' ? 'forum' : 'description';
+                    const typeLabel = log.type === 'phone' ? '电话问诊' : log.type === 'video' ? '视频问诊' : log.type === 'wechat' ? '企微随访' : '单证 OCR';
+                    const dotColor = log.synced ? '#10b981' : '#f59e0b';
+                    return (
+                      <div key={log.id} style={{ position: 'relative' }}>
+                        <div style={{ position: 'absolute', left: '-27px', top: '14px', width: '10px', height: '10px', borderRadius: '50%', background: dotColor, boxShadow: `0 0 0 3px #fff, 0 0 8px ${dotColor}`, zIndex: 5 }} />
+                        <div style={{ background: '#f8fafc', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '12px 14px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: '14px', color: 'var(--teal-primary)' }}>{typeIcon}</span>
+                              <span style={{ fontSize: '11px', background: 'var(--teal-primary)', color: '#fff', padding: '1px 7px', borderRadius: '6px', fontWeight: '700' }}>{typeLabel}</span>
+                              <span style={{ fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>{log.title || '无标题'}</span>
+                            </div>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{new Date(log.timestamp).toLocaleString()}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordWrap: 'break-word', fontFamily: 'inherit', fontSize: '12px', color: 'var(--text-primary)', lineHeight: '1.6', flex: 1, maxHeight: '120px', overflow: 'hidden' }}>
+                              {log.content.length > 300 ? log.content.slice(0, 300) + '…' : log.content}
+                            </pre>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
+                              <span style={{ fontSize: '10px', padding: '2px 7px', borderRadius: '20px', background: log.synced ? 'rgba(0,108,71,0.08)' : 'rgba(154,69,0,0.08)', border: log.synced ? '1px solid rgba(0,108,71,0.2)' : '1px solid rgba(154,69,0,0.2)', color: log.synced ? '#006c47' : '#9a4500', whiteSpace: 'nowrap' }}>
+                                {log.synced ? '✓ 已入 Wiki' : '○ 待同步'}
+                              </span>
+                              <span style={{ fontSize: '10px', color: '#94a3b8', textAlign: 'right' }}>ID: {log.id.slice(-8)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -856,6 +1183,87 @@ export default function App() {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                 <button type="button" onClick={() => setShowLogModal(false)} style={{ padding: '8px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#f8fafc', fontWeight: '700', cursor: 'pointer' }}>取消</button>
                 <button type="submit" className="btn-action-sync">保存记录</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── 弹窗 3: 编辑客户基本资料 ── */}
+      {showEditModal && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: '#ffffff', borderRadius: '20px', padding: '26px', width: '480px', boxShadow: '0 20px 40px rgba(0,0,0,0.15)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>编辑客户基本资料</h3>
+              <button
+                type="button"
+                onClick={() => setShowEditModal(false)}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }}
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <form onSubmit={handleUpdateClient}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '700', display: 'block', marginBottom: '4px' }}>客户姓名 / 案例标题 *</label>
+                <input
+                  type="text"
+                  required
+                  style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                  value={editClientData.name}
+                  onChange={e => setEditClientData({ ...editClientData, name: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '700', display: 'block', marginBottom: '4px' }}>年龄</label>
+                  <input
+                    type="number"
+                    style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                    value={editClientData.age}
+                    onChange={e => setEditClientData({ ...editClientData, age: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '700', display: 'block', marginBottom: '4px' }}>性别</label>
+                  <select
+                    style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                    value={editClientData.gender}
+                    onChange={e => setEditClientData({ ...editClientData, gender: e.target.value })}
+                  >
+                    <option value="男">男</option>
+                    <option value="女">女</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '700', display: 'block', marginBottom: '4px' }}>联系电话</label>
+                <input
+                  type="text"
+                  style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                  value={editClientData.phone}
+                  onChange={e => setEditClientData({ ...editClientData, phone: e.target.value })}
+                />
+              </div>
+              <div style={{ marginBottom: '18px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '700', display: 'block', marginBottom: '4px' }}>已知药物过敏及医疗警示</label>
+                <input
+                  type="text"
+                  style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                  placeholder="如：青霉素过敏、防跌倒高危等"
+                  value={editClientData.allergies}
+                  onChange={e => setEditClientData({ ...editClientData, allergies: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  style={{ padding: '8px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#f8fafc', fontWeight: '700', cursor: 'pointer', color: '#475569' }}
+                >
+                  取消
+                </button>
+                <button type="submit" className="btn-action-sync">保存修改</button>
               </div>
             </form>
           </div>

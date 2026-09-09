@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki · 方案三：解剖透视 × 诊疗时间轴工作台 (Anatomy & Timeline Workstation)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <style>
+    :root {
+      --canvas: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(226, 232, 240, 0.8);
+      --card-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+      --text-main: #0f172a;
+      --text-secondary: #334155;
+      --text-muted: #64748b;
+      --teal-primary: #0d9488;
+      --teal-bg: #f0fdfa;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --rose-bg: #fff1f2;
+      --font-display: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--canvas);
+      color: var(--text-main);
+      font-family: var(--font-display);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* 栏 1：左侧名录栏 */
+    .col-sidebar {
+      width: 240px;
+      background: #ffffff;
+      border-right: 1px solid rgba(0, 0, 0, 0.06);
+      display: flex;
+      flex-direction: column;
+      padding: 18px 12px;
+      gap: 14px;
+    }
+    .brand-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 6px;
+    }
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #14b8a6, #0d9488);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
+    }
+    .brand-title { font-size: 13.5px; font-weight: 800; }
+    .roster-list {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .roster-card {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f8fafc;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+    }
+    .roster-card.active {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.3);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+    }
+    .roster-card-name { font-size: 12.5px; font-weight: 700; margin-bottom: 2px; }
+    .roster-card-sub { font-size: 10.5px; color: var(--text-muted); }
+
+    /* 栏 2：纵向人体解剖透视柱 (Vertical Anatomical Inspector) */
+    .col-anatomy-inspector {
+      width: 330px;
+      background: #ffffff;
+      border-right: 1px solid rgba(0, 0, 0, 0.06);
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    .inspector-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .inspector-title {
+      font-size: 14px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #0f172a;
+    }
+
+    .body-canvas-box {
+      height: 270px;
+      background: radial-gradient(circle at 50% 45%, #f0fdfa 0%, #ffffff 80%);
+      border-radius: 18px;
+      border: 1px solid #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .inspector-body-svg {
+      width: 140px;
+      height: 250px;
+    }
+
+    /* 器官受损指数仪表条 */
+    .organ-meter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .organ-meter-row {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--card-border);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .organ-meter-row:hover, .organ-meter-row.active {
+      background: #ffffff;
+      border-color: var(--teal-primary);
+      box-shadow: 0 2px 8px rgba(13, 148, 136, 0.12);
+    }
+    .meter-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .meter-bar-bg {
+      height: 5px;
+      background: #e2e8f0;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .meter-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+    }
+
+    /* 栏 3：宽屏主工作区 (诊疗时间轴与生活百科) */
+    .col-timeline-main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* 顶部患者全景视界卡 */
+    .patient-hero-card {
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 18px 24px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .patient-meta-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .patient-avatar {
+      width: 46px;
+      height: 46px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #0d9488, #047857);
+      color: white;
+      font-size: 18px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .patient-name-title { font-size: 18px; font-weight: 800; display: flex; gap: 8px; align-items: center; }
+
+    /* 时间轴与事实融合卡 */
+    .timeline-feed-card {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 26px 30px;
+      box-shadow: var(--card-shadow);
+      flex: 1;
+    }
+    .feed-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+    }
+    .feed-title { font-size: 16px; font-weight: 800; color: #0f172a; display: flex; gap: 8px; align-items: center; }
+
+    /* 时间轴条目 */
+    .timeline-stream {
+      position: relative;
+      padding-left: 24px;
+    }
+    .timeline-stream::before {
+      content: '';
+      position: absolute;
+      left: 7px;
+      top: 6px;
+      bottom: 6px;
+      width: 2px;
+      background: #e2e8f0;
+    }
+    .timeline-event-node {
+      position: relative;
+      margin-bottom: 22px;
+    }
+    .node-dot {
+      position: absolute;
+      left: -24px;
+      top: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 3px solid var(--dot-color, #0d9488);
+      box-shadow: 0 0 6px rgba(0,0,0,0.1);
+    }
+    .node-time {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      margin-bottom: 4px;
+    }
+    .node-content-box {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 14px 18px;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+    }
+    .node-content-box:hover {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.25);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+    .node-text { font-size: 13.5px; color: #1e293b; line-height: 1.6; }
+    .node-source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: #ffffff;
+      border: 1px solid rgba(13, 148, 136, 0.25);
+      color: #0d9488;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-top: 8px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 栏 1：名册导航 -->
+  <aside class="col-sidebar">
+    <div class="brand-pill">
+      <div class="brand-icon">
+        <span class="material-symbols-outlined" style="font-size:18px;">browse_activity</span>
+      </div>
+      <div>
+        <div class="brand-title">LLMWiki 仿生视界</div>
+        <div style="font-size:10px; color:#0d9488; font-weight:700;">方案三 · 三栏纵深档案</div>
+      </div>
+    </div>
+
+    <div class="roster-list">
+      <div class="roster-card active">
+        <div class="roster-card-name">张增良 · 73岁</div>
+        <div class="roster-card-sub" style="color:#e11d48; font-weight:600;">慢阻肺 + L2骨折</div>
+      </div>
+      <div class="roster-card">
+        <div class="roster-card-name">刘先生 · 53岁</div>
+        <div class="roster-card-sub">脑出血急救 · ICU</div>
+      </div>
+      <div class="roster-card">
+        <div class="roster-card-name">陈女士 · 26岁</div>
+        <div class="roster-card-sub">克罗恩病 · 维持期</div>
+      </div>
+    </div>
+
+    <button style="padding: 8px; border-radius: 10px; border: 1px solid #e2e8f0; background: #ffffff; font-size: 11.5px; font-weight:600; cursor: pointer;" onclick="window.location.href='/demos.html'">
+      ← 对比总览
+    </button>
+  </aside>
+
+  <!-- 栏 2：人体解剖透视立柱 -->
+  <section class="col-anatomy-inspector">
+    <div class="inspector-header">
+      <div class="inspector-title">
+        <span class="material-symbols-outlined" style="color:#0d9488; font-size:18px;">accessibility</span>
+        解剖病理透视立柱
+      </div>
+      <span style="font-size:10.5px; background:#f0fdfa; color:#0d9488; padding:2px 6px; border-radius:8px; font-weight:700;">实时投影</span>
+    </div>
+
+    <!-- 人体 SVG 透视卡 -->
+    <div class="body-canvas-box">
+      <svg class="inspector-body-svg" viewBox="0 0 160 280">
+        <ellipse cx="80" cy="24" rx="14" ry="17" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1.5"/>
+        <path d="M50,52 C60,48 100,48 110,52 C115,65 112,105 108,135 C102,150 106,160 104,175 L56,175 C54,160 58,150 52,135 C48,105 45,65 50,52 Z" fill="#e8edf3" stroke="#cbd5e1" stroke-width="1.5"/>
+        <path d="M50,53 L34,115 L40,117 L53,60 Z" fill="#e2e8f0" opacity="0.8"/>
+        <path d="M110,53 L126,115 L120,117 L107,60 Z" fill="#e2e8f0" opacity="0.8"/>
+        <path d="M58,175 L60,260 L70,260 L76,175 Z" fill="#e2e8f0" opacity="0.8"/>
+        <path d="M102,175 L100,260 L90,260 L84,175 Z" fill="#e2e8f0" opacity="0.8"/>
+
+        <!-- 呼吸肺叶 (高危黄红) -->
+        <path d="M60,65 C56,80 58,95 68,100 C74,100 76,85 74,70 Z" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+        <path d="M100,65 C104,80 102,95 92,100 C86,100 84,85 86,70 Z" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+
+        <!-- L2 骨折爆裂区 -->
+        <rect x="73" y="116" width="14" height="9" rx="2" fill="#fee2e2" stroke="#f43f5e" stroke-width="2"/>
+        <!-- 胰腺 -->
+        <path d="M70,105 C80,102 90,103 93,108 C88,111 76,111 70,105 Z" fill="#dcfce7" stroke="#10b981" stroke-width="1.5"/>
+      </svg>
+    </div>
+
+    <!-- 器官受损指数仪表条 -->
+    <div class="organ-meter-group">
+      <div class="organ-meter-row active" onclick="filterTimeline('lung')">
+        <div class="meter-top">
+          <span>🫁 呼吸系统 (慢阻肺)</span>
+          <span style="color:#d97706;">82% 负荷</span>
+        </div>
+        <div class="meter-bar-bg">
+          <div class="meter-bar-fill" style="width:82%; background:#f59e0b;"></div>
+        </div>
+      </div>
+
+      <div class="organ-meter-row" onclick="filterTimeline('spine')">
+        <div class="meter-top">
+          <span>🦴 骨骼系统 (L2骨折)</span>
+          <span style="color:#e11d48;">95% 急性损伤</span>
+        </div>
+        <div class="meter-bar-bg">
+          <div class="meter-bar-fill" style="width:95%; background:#f43f5e;"></div>
+        </div>
+      </div>
+
+      <div class="organ-meter-row" onclick="filterTimeline('endocrine')">
+        <div class="meter-top">
+          <span>🩸 代谢内分泌 (控糖)</span>
+          <span style="color:#16a34a;">70% 受控</span>
+        </div>
+        <div class="meter-bar-bg">
+          <div class="meter-bar-fill" style="width:70%; background:#10b981;"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 栏 3：诊疗时间轴与 Wiki 深度流 -->
+  <main class="col-timeline-main">
+    
+    <header class="patient-hero-card">
+      <div class="patient-meta-left">
+        <div class="patient-avatar">张</div>
+        <div>
+          <div class="patient-name-title">
+            张增良
+            <span style="font-size:12px; font-weight:600; color:var(--text-muted); background:#f1f5f9; padding:2px 8px; border-radius:6px;">男 · 73岁</span>
+            <span style="font-size:11px; background:#fee2e2; color:#e11d48; padding:2px 8px; border-radius:6px; font-weight:700;">一级特级护理</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:3px;">
+            入院诊断：慢性阻塞性肺疾病急性加重 · L2腰椎压缩骨折 · 2型糖尿病
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:6px 12px; text-align:right;">
+          <div style="font-size:10px; color:var(--text-muted);">持续指脉氧</div>
+          <div style="font-size:15px; font-weight:800; color:#f43f5e;">92%</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 诊疗时间轴与事实流 -->
+    <article class="timeline-feed-card">
+      <div class="feed-header">
+        <div class="feed-title">
+          <span class="material-symbols-outlined" style="color:#0d9488;">timeline</span>
+          患者诊疗发展轴与循证医学事实流 (Timeline & Living Facts)
+        </div>
+        <div style="font-size:12px; color:var(--text-muted);">基于原始录音与病历实时沉淀</div>
+      </div>
+
+      <div class="timeline-stream">
+
+        <!-- 事件 1 -->
+        <div class="timeline-event-node" data-organ="spine">
+          <div class="node-dot" style="--dot-color:#f43f5e;"></div>
+          <div class="node-time">2026-04-30 21:15 · 急诊入院前事件</div>
+          <div class="node-content-box">
+            <div class="node-text">
+              患者在家中卧室床边<strong>因剧烈咳嗽重心不稳跌倒</strong>，背部剧痛无法站立，120急送入院，X光确诊 L2 椎体骨折。
+            </div>
+            <button class="node-source-badge">
+              <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+              溯源 #log_c1_1 家属通话录音
+            </button>
+          </div>
+        </div>
+
+        <!-- 事件 2 -->
+        <div class="timeline-event-node" data-organ="lung">
+          <div class="node-dot" style="--dot-color:#f59e0b;"></div>
+          <div class="node-time">2026-05-01 07:45 · 呼吸病房晨间查房</div>
+          <div class="node-content-box">
+            <div class="node-text">
+              平卧吸氧 2L/min 条件下血氧维持 92%，听诊散在哮鸣音。<strong>AI 协同预警：咳嗽胸腔震荡严重阻碍腰椎骨折断端愈合，急需舒张支气管平喘。</strong>
+            </div>
+            <button class="node-source-badge">
+              <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+              溯源 #log_c1_2 晨间查房日志
+            </button>
+          </div>
+        </div>
+
+        <!-- 事件 3 -->
+        <div class="timeline-event-node" data-organ="endocrine">
+          <div class="node-dot" style="--dot-color:#10b981;"></div>
+          <div class="node-time">2026-05-01 11:00 · 内分泌科床旁会诊</div>
+          <div class="node-content-box">
+            <div class="node-text">
+              执行围手术期禁食水医嘱，停用口服二甲双胍，启动短效胰岛素微调，避免高血糖感染与低血糖昏迷。
+            </div>
+            <button class="node-source-badge">
+              <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+              溯源 #log_c1_3 急诊交班记录
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </article>
+
+  </main>
+
+  <script>
+    function filterTimeline(organ) {
+      document.querySelectorAll('.organ-meter-row').forEach(r => r.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+
+      document.querySelectorAll('.timeline-event-node').forEach(node => {
+        if (node.getAttribute('data-organ') === organ) {
+          node.querySelector('.node-content-box').style.borderColor = '#0d9488';
+          node.querySelector('.node-content-box').style.background = '#ffffff';
+          node.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+          node.querySelector('.node-content-box').style.borderColor = 'transparent';
+          node.querySelector('.node-content-box').style.background = '#f8fafc';
+        }
+      });
+    }
+  </script>
+</body>
+</html>

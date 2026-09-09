@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMWiki · 方案 2A-2 (仿生波形与生理负荷环版)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <style>
+    :root {
+      --canvas: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(226, 232, 240, 0.8);
+      --card-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+      --card-hover: 0 12px 32px -4px rgba(15, 23, 42, 0.08);
+      --text-main: #0f172a;
+      --text-secondary: #334155;
+      --text-muted: #64748b;
+      --teal-primary: #0d9488;
+      --teal-bg: #f0fdfa;
+      --amber: #f59e0b;
+      --amber-bg: #fffbeb;
+      --rose: #f43f5e;
+      --rose-bg: #fff1f2;
+      --indigo: #6366f1;
+      --font-display: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--canvas);
+      color: var(--text-main);
+      font-family: var(--font-display);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* 仿生侧边栏 (与 2A 完全一致) */
+    .bionic-sidebar {
+      width: 270px;
+      background: #ffffff;
+      border-right: 1px solid rgba(0, 0, 0, 0.06);
+      display: flex;
+      flex-direction: column;
+      padding: 20px 14px;
+      gap: 16px;
+    }
+    .brand-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px;
+    }
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #14b8a6, #0d9488);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
+    }
+    .brand-title { font-size: 14px; font-weight: 800; letter-spacing: -0.02em; }
+    .brand-badge {
+      font-size: 10px;
+      background: var(--teal-bg);
+      color: var(--teal-primary);
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-weight: 700;
+    }
+
+    .sidebar-roster {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .roster-item {
+      padding: 12px 14px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1px solid transparent;
+      background: #f8fafc;
+    }
+    .roster-item:hover {
+      background: #ffffff;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+      transform: translateY(-1px);
+    }
+    .roster-item.active {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.3);
+      box-shadow: 0 4px 16px rgba(13, 148, 136, 0.12);
+    }
+    .roster-name { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 2px; }
+    .roster-sub { font-size: 11px; color: var(--text-muted); display: flex; gap: 6px; }
+
+    /* 主视界画布 */
+    .bionic-canvas {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+
+    /* 顶部患者全景视界卡 (带动态遥测波形) */
+    .horizon-patient-header {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 22px 28px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .patient-intro {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .patient-avatar {
+      width: 54px;
+      height: 54px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #0d9488 0%, #047857 100%);
+      color: white;
+      font-size: 22px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 18px rgba(13, 148, 136, 0.28);
+    }
+    .patient-title-group h1 {
+      font-size: 20px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .patient-tags-line {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pill-alert {
+      background: var(--rose-bg);
+      color: var(--rose);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* 遥测波形胶囊 */
+    .vitals-horizon-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .vital-telemetry-pill {
+      background: #f8fafc;
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: all 0.2s;
+    }
+    .vital-telemetry-pill:hover {
+      background: #ffffff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      border-color: rgba(13, 148, 136, 0.3);
+    }
+    .vital-telemetry-val { font-size: 16px; font-weight: 800; color: #0f172a; }
+    .vital-telemetry-val.warning { color: var(--rose); }
+    .vital-telemetry-meta { font-size: 10.5px; color: var(--text-muted); line-height: 1.2; }
+    .sparkline-svg {
+      width: 58px;
+      height: 24px;
+    }
+
+    /* 仿生器官地平线卡片群 (嵌入 Apple 生理负荷环) */
+    .organ-horizon-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    .organ-bento-card {
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 16px 18px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 136px;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 2px solid transparent;
+      cursor: pointer;
+    }
+    .organ-bento-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--card-hover);
+    }
+    .organ-bento-card.active {
+      border-color: var(--teal-primary);
+      box-shadow: 0 8px 24px rgba(13, 148, 136, 0.16);
+    }
+    .organ-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .organ-icon-circle {
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    .organ-icon-circle.lung { background: #fef3c7; }
+    .organ-icon-circle.spine { background: #fee2e2; }
+    .organ-icon-circle.endocrine { background: #f0fdf4; }
+    .organ-icon-circle.cardio { background: #e0e7ff; }
+
+    /* 生理负荷环组件 */
+    .vital-ring-box {
+      position: relative;
+      width: 38px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .vital-ring-svg {
+      transform: rotate(-90deg);
+      width: 38px;
+      height: 38px;
+    }
+    .vital-ring-bg {
+      fill: none;
+      stroke: #f1f5f9;
+      stroke-width: 3.5;
+    }
+    .vital-ring-fill {
+      fill: none;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.8s ease;
+    }
+    .vital-ring-percent {
+      position: absolute;
+      font-size: 9.5px;
+      font-weight: 800;
+      color: #334155;
+      font-family: var(--font-mono);
+    }
+
+    .organ-card-bottom .organ-name {
+      font-size: 14px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .organ-card-bottom .organ-desc {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* 核心百科阅读主幕 */
+    .wiki-living-sheet {
+      background: #ffffff;
+      border-radius: 22px;
+      padding: 30px 36px;
+      box-shadow: var(--card-shadow);
+    }
+    .sheet-nav-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 22px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    .sheet-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sheet-tab-pills {
+      display: flex;
+      gap: 6px;
+      background: #f1f5f9;
+      padding: 3px;
+      border-radius: 12px;
+    }
+    .sheet-tab-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 14px;
+      border-radius: 9px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .sheet-tab-btn.active {
+      background: #ffffff;
+      color: var(--teal-primary);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    /* AI 临床两难冲突策展盒 (与 2A 完全一致) */
+    .ai-curated-contradiction {
+      background: linear-gradient(135deg, #f0fdfa 0%, #fef3c7 100%);
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      border-left: 4px solid var(--teal-primary);
+    }
+    .curated-title {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--teal-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .curated-p {
+      font-size: 13.5px;
+      color: #334155;
+      line-height: 1.7;
+    }
+
+    /* 生理遥测相关性分析卡 (2A-2 增强) */
+    .telemetry-correlation-box {
+      background: #f8fafc;
+      border-radius: 14px;
+      padding: 16px 20px;
+      margin-bottom: 22px;
+      border: 1px solid var(--card-border);
+    }
+    .correlation-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .correlation-title {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .correlation-badge {
+      font-size: 11px;
+      color: var(--rose);
+      background: var(--rose-bg);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-weight: 600;
+    }
+    .correlation-chart {
+      width: 100%;
+      height: 60px;
+    }
+
+    /* 临床观察事实流 */
+    .clinical-fact-item {
+      background: #f8fafc;
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+    }
+    .clinical-fact-item:hover {
+      background: #ffffff;
+      border-color: rgba(13, 148, 136, 0.25);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+      transform: translateX(3px);
+    }
+    .fact-text { font-size: 13.5px; color: #1e293b; font-weight: 500; }
+    .fact-source-pill {
+      background: #ffffff;
+      border: 1px solid rgba(13, 148, 136, 0.25);
+      color: var(--teal-primary);
+      padding: 4px 11px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .fact-source-pill:hover { background: var(--teal-bg); }
+
+    /* 侧拉证据抽屉 */
+    .evidence-drawer-overlay {
+      position: fixed;
+      top: 0;
+      right: -440px;
+      width: 420px;
+      height: 100vh;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(20px);
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.08);
+      z-index: 1000;
+      transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      padding: 26px;
+    }
+    .evidence-drawer-overlay.open { right: 0; }
+    .drawer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    .btn-close-drawer {
+      border: none;
+      background: #f1f5f9;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 仿生侧栏 -->
+  <aside class="bionic-sidebar">
+    <div class="brand-pill">
+      <div class="brand-icon">
+        <span class="material-symbols-outlined">vital_signs</span>
+      </div>
+      <div>
+        <div class="brand-title">LLMWiki 仿生视界</div>
+        <div style="display:flex; gap:4px; margin-top:2px;">
+          <span class="brand-badge">方案 2A-2 · 生理环与时序波形</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-roster">
+      <div class="roster-item active">
+        <div class="roster-name">张增良 · 73岁</div>
+        <div class="roster-sub">
+          <span style="color:#e11d48; font-weight:600;">慢阻肺+骨折</span>
+          <span>特级照护</span>
+        </div>
+      </div>
+      <div class="roster-item">
+        <div class="roster-name">刘先生 · 53岁</div>
+        <div class="roster-sub">
+          <span style="color:#e11d48; font-weight:600;">脑出血急救</span>
+          <span>ICU重症</span>
+        </div>
+      </div>
+      <div class="roster-item">
+        <div class="roster-name">陈女士 · 26岁</div>
+        <div class="roster-sub">
+          <span>克罗恩病监测</span>
+          <span>维持期</span>
+        </div>
+      </div>
+    </div>
+
+    <button style="padding: 10px; border-radius: 12px; border: 1px solid #e2e8f0; background: #ffffff; font-weight: 600; font-size: 12px; cursor: pointer; color: #475569;" onclick="window.location.href='/demos.html'">
+      ← 方案对比总览
+    </button>
+  </aside>
+
+  <!-- 主画布 -->
+  <main class="bionic-canvas">
+
+    <!-- 顶部 Horizon Patient Header (带真实时序波形) -->
+    <header class="horizon-patient-header">
+      <div class="patient-intro">
+        <div class="patient-avatar">张</div>
+        <div class="patient-title-group">
+          <h1>
+            张增良
+            <span style="font-size:13px; font-weight:600; color:var(--text-muted); background:#f1f5f9; padding:2px 8px; border-radius:6px;">男 · 73岁</span>
+          </h1>
+          <div class="patient-tags-line">
+            <span>📞 130-0000-0001</span>
+            <span>·</span>
+            <span class="pill-alert">
+              <span class="material-symbols-outlined" style="font-size:13px;">warning</span>
+              术前禁食水 · 慢阻肺20年
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 遥测波形胶囊群 -->
+      <div class="vitals-horizon-row">
+        <!-- 血氧趋势 -->
+        <div class="vital-telemetry-pill">
+          <div>
+            <div class="vital-telemetry-val warning">92%</div>
+            <div class="vital-telemetry-meta">指脉血氧(吸氧)</div>
+          </div>
+          <svg class="sparkline-svg" viewBox="0 0 60 26">
+            <path d="M2,14 L12,13 L22,17 L30,24 L38,12 L48,15 L58,11" fill="none" stroke="#f43f5e" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </div>
+
+        <!-- 血糖趋势 -->
+        <div class="vital-telemetry-pill">
+          <div>
+            <div class="vital-telemetry-val">7.8</div>
+            <div class="vital-telemetry-meta">血糖 mmol/L</div>
+          </div>
+          <svg class="sparkline-svg" viewBox="0 0 60 26">
+            <path d="M2,18 L14,14 L26,8 L36,12 L46,15 L58,13" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </div>
+
+        <!-- 体温指标 -->
+        <div class="vital-telemetry-pill">
+          <div>
+            <div class="vital-telemetry-val">36.8℃</div>
+            <div class="vital-telemetry-meta">核心体温 正常</div>
+          </div>
+          <svg class="sparkline-svg" viewBox="0 0 60 26">
+            <path d="M2,13 L15,13 L30,12 L45,13 L58,13" fill="none" stroke="#0d9488" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+    </header>
+
+    <!-- 仿生器官地平线 (4大系统，嵌入 Apple 生理负荷环) -->
+    <section class="organ-horizon-grid">
+      <!-- 呼吸系统 82% -->
+      <div class="organ-bento-card active">
+        <div class="organ-card-top">
+          <div class="organ-icon-circle lung">🫁</div>
+          <div class="vital-ring-box">
+            <svg class="vital-ring-svg" viewBox="0 0 38 38">
+              <circle class="vital-ring-bg" cx="19" cy="19" r="15"/>
+              <circle class="vital-ring-fill" cx="19" cy="19" r="15" stroke="#e11d48" stroke-dasharray="94.2" stroke-dashoffset="17"/>
+            </svg>
+            <span class="vital-ring-percent">82%</span>
+          </div>
+        </div>
+        <div class="organ-card-bottom">
+          <div class="organ-name">呼吸系统</div>
+          <div class="organ-desc">慢阻肺通气负荷高 · 伴哮喘</div>
+        </div>
+      </div>
+
+      <!-- 骨骼运动系统 65% -->
+      <div class="organ-bento-card">
+        <div class="organ-card-top">
+          <div class="organ-icon-circle spine">🦴</div>
+          <div class="vital-ring-box">
+            <svg class="vital-ring-svg" viewBox="0 0 38 38">
+              <circle class="vital-ring-bg" cx="19" cy="19" r="15"/>
+              <circle class="vital-ring-fill" cx="19" cy="19" r="15" stroke="#f43f5e" stroke-dasharray="94.2" stroke-dashoffset="33"/>
+            </svg>
+            <span class="vital-ring-percent">65%</span>
+          </div>
+        </div>
+        <div class="organ-card-bottom">
+          <div class="organ-name">骨骼运动系统</div>
+          <div class="organ-desc">L2压缩骨折 · 卧床制动中</div>
+        </div>
+      </div>
+
+      <!-- 代谢内分泌 70% -->
+      <div class="organ-bento-card">
+        <div class="organ-card-top">
+          <div class="organ-icon-circle endocrine">🩸</div>
+          <div class="vital-ring-box">
+            <svg class="vital-ring-svg" viewBox="0 0 38 38">
+              <circle class="vital-ring-bg" cx="19" cy="19" r="15"/>
+              <circle class="vital-ring-fill" cx="19" cy="19" r="15" stroke="#f59e0b" stroke-dasharray="94.2" stroke-dashoffset="28"/>
+            </svg>
+            <span class="vital-ring-percent">70%</span>
+          </div>
+        </div>
+        <div class="organ-card-bottom">
+          <div class="organ-name">代谢内分泌</div>
+          <div class="organ-desc">围术期血糖波动指数中等</div>
+        </div>
+      </div>
+
+      <!-- 皮肤与神经屏障 25% -->
+      <div class="organ-bento-card">
+        <div class="organ-card-top">
+          <div class="organ-icon-circle cardio">🛡️</div>
+          <div class="vital-ring-box">
+            <svg class="vital-ring-svg" viewBox="0 0 38 38">
+              <circle class="vital-ring-bg" cx="19" cy="19" r="15"/>
+              <circle class="vital-ring-fill" cx="19" cy="19" r="15" stroke="#10b981" stroke-dasharray="94.2" stroke-dashoffset="70"/>
+            </svg>
+            <span class="vital-ring-percent">25%</span>
+          </div>
+        </div>
+        <div class="organ-card-bottom">
+          <div class="organ-name">皮肤屏障风险</div>
+          <div class="organ-desc">Braden 14分 · 气垫床受控</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 客户健康百科主活页 -->
+    <article class="wiki-living-sheet">
+      <div class="sheet-nav-bar">
+        <div class="sheet-title">
+          <span class="material-symbols-outlined" style="color:var(--teal-primary);">menu_book</span>
+          客户健康百科 · 综合首页 (index.md)
+        </div>
+        <div class="sheet-tab-pills">
+          <button class="sheet-tab-btn active">综合概览</button>
+          <button class="sheet-tab-btn">既往史与诊疗</button>
+          <button class="sheet-tab-btn">用药医嘱</button>
+          <button class="sheet-tab-btn">随访溯源</button>
+        </div>
+      </div>
+
+      <!-- AI 临床核心矛盾策展 -->
+      <div class="ai-curated-contradiction">
+        <div class="curated-title">
+          <span class="material-symbols-outlined" style="font-size:18px;">psychology</span>
+          AI 临床核心协同矛盾决策 (两难协调)
+        </div>
+        <div class="curated-p">
+          患者因慢阻肺咳嗽导致重心不稳摔伤造成 L2 腰椎骨折。目前最关键冲突点在于：<strong>慢阻肺剧烈咳嗽引起的胸腹腔高压动荡，会直接造成腰椎骨折断端移位</strong>；但骨折要求绝对制动卧床，又阻碍排痰导致坠积性肺炎。临床决策需优先保障镇咳与轻柔辅助翻身。
+        </div>
+      </div>
+
+      <!-- 24小时临床波形关联走势图 (2A-2 亮点) -->
+      <div class="telemetry-correlation-box">
+        <div class="correlation-header">
+          <span class="correlation-title">
+            <span class="material-symbols-outlined" style="font-size:16px; color:#0d9488;">show_chart</span>
+            24 小时咳嗽阵发与血氧突降时序相关性
+          </span>
+          <span class="correlation-badge">咳嗽峰值伴发血氧跌破 90%</span>
+        </div>
+        <svg class="correlation-chart" viewBox="0 0 800 60">
+          <line x1="0" y1="15" x2="800" y2="15" stroke="#e2e8f0" stroke-dasharray="4"/>
+          <line x1="0" y1="45" x2="800" y2="45" stroke="#e2e8f0" stroke-dasharray="4"/>
+          <path d="M0,20 Q120,18 200,22 T340,48 T480,24 T620,44 T800,22" fill="none" stroke="#0d9488" stroke-width="2.5"/>
+          <!-- 跌落告警点 -->
+          <circle cx="340" cy="48" r="4.5" fill="#f43f5e"/>
+          <text x="350" y="52" font-size="11" fill="#e11d48" font-family="JetBrains Mono" font-weight="700">89% (剧咳摔伤)</text>
+          <circle cx="620" cy="44" r="4.5" fill="#f43f5e"/>
+          <text x="630" y="48" font-size="11" fill="#e11d48" font-family="JetBrains Mono" font-weight="700">90% (夜间呛咳)</text>
+        </svg>
+      </div>
+
+      <!-- 事实节点列表 -->
+      <div style="font-size:14px; font-weight:700; color:#0f172a; margin-bottom:12px;">
+        已融合沉淀的医学事实 (点击溯源查看原话)
+      </div>
+
+      <div class="clinical-fact-item">
+        <span class="fact-text">患者张增良慢阻肺病史二十年，4月30日卧室床边咳嗽摔伤入院</span>
+        <button class="fact-source-pill" onclick="openDrawer('家属电话记录', '4月30日晚上，我父亲在床边咳嗽剧烈，突然重心不稳一下子摔在地上，痛得站不起来，急诊拍片确诊腰2椎体压缩骨折。')">
+          <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+          溯源 #log_c1_1
+        </button>
+      </div>
+
+      <div class="clinical-fact-item">
+        <span class="fact-text">活动后气短加重，卧床低流量持续吸氧，血氧维持在 92%</span>
+        <button class="fact-source-pill" onclick="openDrawer('护士查房日志', '晨间查房：患者卧床自述胸口憋闷，呼吸稍促。鼻导管吸氧 2L/min，指脉氧 92%，听诊双肺闻及散在哮鸣音。')">
+          <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+          溯源 #log_c1_2
+        </button>
+      </div>
+
+      <div class="clinical-fact-item">
+        <span class="fact-text">既往4年糖尿病史，执行术前禁食水，短效胰岛素皮下微调血糖</span>
+        <button class="fact-source-pill" onclick="openDrawer('急诊医嘱交班', '既往有4年糖尿病史，已开具骨科手术前禁食水医嘱，改为短效胰岛素按餐前监测血糖动态调整。')">
+          <span class="material-symbols-outlined" style="font-size:12px;">link</span>
+          溯源 #log_c1_3
+        </button>
+      </div>
+
+    </article>
+
+  </main>
+
+  <!-- 侧拉证据抽屉 (Drawer) -->
+  <div class="evidence-drawer-overlay" id="drawer">
+    <div class="drawer-header">
+      <div style="font-size:15px; font-weight:700;" id="drawerTitle">原始证据溯源</div>
+      <button class="btn-close-drawer" onclick="closeDrawer()">✕</button>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">原汁原味真实记录：</div>
+    <div style="background:#f8fafc; border-radius:12px; padding:16px; font-size:13.5px; color:#334155; line-height:1.7; border:1px solid #e2e8f0;" id="drawerBody">
+      内容载入中...
+    </div>
+  </div>
+
+  <script>
+    function openDrawer(title, content) {
+      document.getElementById('drawerTitle').innerText = title;
+      document.getElementById('drawerBody').innerText = content;
+      document.getElementById('drawer').classList.add('open');
+    }
+    function closeDrawer() {
+      document.getElementById('drawer').classList.remove('open');
+    }
+  </script>
+</body>
+</html>
