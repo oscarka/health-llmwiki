@@ -499,6 +499,29 @@
   transform: translateY(0);
 }
 
+/* 折叠溯源展开按钮："+N 个溯源" */
+.ref-citation-more {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  color: #64748b;
+  background-color: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  padding: 1px 6px;
+  margin-left: 3px;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.ref-citation-more:hover {
+  background-color: #e2e8f0;
+  color: #334155;
+  border-color: #94a3b8;
+}
+
 /* 🤖 划词选取 AI 伴随气泡 Popover */
 .selection-popover {
   position: absolute;

@@ -353,16 +353,35 @@ export default function HealthWikiRenderer({
       return `<div class="alert-block alert-${type.toLowerCase()}"><strong>${label}</strong><p>${cleanContent}</p></div>`;
     });
 
-    // 6. 自动匹配 [🔗 溯源](log_xxx) 标签并转化为定制 Span 徽章
-    // 注意：先把代码块内容保护起来，不替换 backtick 包裹中的引用格式说明
-    // 例如支持 Markdown: [🔗 溯源](log_1779347385975_0)
-    // 但跳过反引号内的纯说明文字如 `[🔗 溯源](log_id)`
-    compiledText = compiledText.replace(/`[^`]*`|(\[🔗\s*溯源\]\((.*?)\))/g, (match, fullCitation, logId) => {
-      // 如果是反引号包裹的代码段，原样返回
-      if (!fullCitation) return match;
-      // 跳过占位符或无时间戳的非真实 ID（真实 ID 格式：log_数字时间戳_随机码）
-      if (!logId || !/^log_\d{10,}/.test(logId)) return match;
-      return `<span class="ref-citation-badge" data-log-id="${logId}">🔗 溯源</span>`;
+    // 6. 自动匹配 [🔗 溯源](log_xxx) 并转化为可折叠徽章组
+    // 每"段"最多显示 3 个，超出折叠为「+N 个溯源」点击展开
+    // 同一行/段内相同 log_id 去重（双保险，防数据层漏网之鱼）
+    compiledText = compiledText.replace(/(`[^`]*`)|(\[🔗\s*溯源\]\([^)]+\)(?:\s*\[🔗\s*溯源\]\([^)]+\))*)/g, (match, codeSpan, badgeGroup) => {
+      if (codeSpan) return codeSpan; // 反引号内原样返回
+      if (!badgeGroup) return match;
+
+      // 提取这一组里的所有 logId，去重
+      const allIds = [...badgeGroup.matchAll(/\[🔗\s*溯源\]\(([^)]+)\)/g)]
+        .map(m => m[1])
+        .filter(id => /^log_\d{10,}/.test(id));
+      const uniqueIds = [...new Set(allIds)];
+      if (uniqueIds.length === 0) return match;
+
+      const MAX_VISIBLE = 3;
+      const visible = uniqueIds.slice(0, MAX_VISIBLE);
+      const hidden = uniqueIds.slice(MAX_VISIBLE);
+
+      const visibleHtml = visible
+        .map(id => `<span class="ref-citation-badge" data-log-id="${id}">🔗 溯源</span>`)
+        .join('');
+
+      if (hidden.length === 0) return visibleHtml;
+
+      const hiddenHtml = hidden
+        .map(id => `<span class="ref-citation-badge ref-citation-hidden" data-log-id="${id}" style="display:none">🔗 溯源</span>`)
+        .join('');
+
+      return `${visibleHtml}${hiddenHtml}<span class="ref-citation-more" onclick="this.previousElementSibling && Array.from(this.parentElement.querySelectorAll('.ref-citation-hidden')).forEach(el=>el.style.display=''); this.style.display='none'">+${hidden.length} 个溯源</span>`;
     });
 
     // 7. 处理增量高亮 Diff 标记

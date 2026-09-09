@@ -133,8 +133,9 @@ export default function App() {
   // 状态标记
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [consolidating, setConsolidating] = useState(false);
+  const [consolidatingId, setConsolidatingId] = useState(null); // 记录正在整理的 clientId，null = 无
   const [alert, setAlert] = useState(null);
+  const [expandedLogs, setExpandedLogs] = useState({});
   const [prevWikiPages, setPrevWikiPages] = useState({});
   const [showDiff, setShowDiff] = useState(false);
 
@@ -507,24 +508,25 @@ export default function App() {
   };
 
   const handleConsolidate = async () => {
-    if (!window.confirm(`确认对"${selectedClient?.name}"的档案进行 AI 整理？\n\n整理将去重合并重复条目、矛盾裁决取最新、清洗操作噪声。过程约 30-60 秒。`)) return;
+    if (!window.confirm(`确认对"${selectedClient?.name}"的档案进行 AI 整理？\n\n整理将去重合并重复条目、矛盾裁决取最新、清洗操作噪声。过程约 60-120 秒。`)) return;
+    const targetId = selectedClientId;
     try {
-      setConsolidating(true);
-      showToast('🧹 AI 档案整理中，请稍候（约 30-60 秒）...', 'info');
-      const res = await fetch(`/api/clients/${selectedClientId}/consolidate`, { method: 'POST' });
+      setConsolidatingId(targetId);
+      showToast('🧹 AI 档案整理中，请稍候（约 60-120 秒）...', 'info');
+      const res = await fetch(`/api/clients/${targetId}/consolidate`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         const saved = data.totalCharsSaved || 0;
         const rollbacks = data.rolledBack?.length ? `，${data.rolledBack.join('/')} 回滚保护` : '';
         showToast(`✅ 档案整理完成！节省 ${saved} 字符${rollbacks}`, 'success');
-        fetchClientDetails(selectedClientId);
+        fetchClientDetails(targetId);
       } else {
         showToast(data.error || '整理失败', 'error');
       }
     } catch (err) {
       showToast('档案整理网络错误', 'error');
     } finally {
-      setConsolidating(false);
+      setConsolidatingId(prev => prev === targetId ? null : prev);
     }
   };
 
@@ -738,10 +740,12 @@ export default function App() {
                 </div>
 
                 <div className="header-actions-row">
+                  {(() => { const isConsolidating = consolidatingId === selectedClientId; return (
+                  <>
                   <button
                     className="btn-action-sync"
                     onClick={handleLlmSync}
-                    disabled={syncing || consolidating}
+                    disabled={syncing || isConsolidating}
                     title="基于最新沟通日志由 AI 同步刷新健康Wiki"
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: '14px', animation: syncing ? 'spin 1s linear infinite' : 'none' }}>sync</span>
@@ -751,13 +755,14 @@ export default function App() {
                   <button
                     className="btn-action-outline"
                     onClick={handleConsolidate}
-                    disabled={consolidating || syncing}
+                    disabled={isConsolidating || syncing}
                     title="AI 去重整理：合并重复条目、矛盾裁决取最新、清洗操作噪声"
-                    style={{ color: consolidating ? '#94a3b8' : '#7c3aed' }}
+                    style={{ color: isConsolidating ? '#94a3b8' : '#7c3aed' }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: consolidating ? '#94a3b8' : '#7c3aed', animation: consolidating ? 'spin 1s linear infinite' : 'none' }}>auto_fix_high</span>
-                    <span>{consolidating ? '整理中...' : '整理档案'}</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: isConsolidating ? '#94a3b8' : '#7c3aed', animation: isConsolidating ? 'spin 1s linear infinite' : 'none' }}>auto_fix_high</span>
+                    <span>{isConsolidating ? '整理中...' : '整理档案'}</span>
                   </button>
+                  </> ); })()}
 
                   <button
                     className="btn-action-outline"
@@ -1028,6 +1033,9 @@ export default function App() {
                     const typeIcon = log.type === 'phone' ? 'phone_in_talk' : log.type === 'video' ? 'videocam' : log.type === 'wechat' ? 'forum' : 'description';
                     const typeLabel = log.type === 'phone' ? '电话问诊' : log.type === 'video' ? '视频问诊' : log.type === 'wechat' ? '企微随访' : '单证 OCR';
                     const dotColor = log.synced ? '#10b981' : '#f59e0b';
+                    const isLong = log.content.length > 300;
+                    const isExpanded = expandedLogs[log.id];
+                    const displayContent = isLong && !isExpanded ? log.content.slice(0, 300) + '…' : log.content;
                     return (
                       <div key={log.id} style={{ position: 'relative' }}>
                         <div style={{ position: 'absolute', left: '-27px', top: '14px', width: '10px', height: '10px', borderRadius: '50%', background: dotColor, boxShadow: `0 0 0 3px #fff, 0 0 8px ${dotColor}`, zIndex: 5 }} />
@@ -1041,9 +1049,19 @@ export default function App() {
                             <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{new Date(log.timestamp).toLocaleString()}</span>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordWrap: 'break-word', fontFamily: 'inherit', fontSize: '12px', color: 'var(--text-primary)', lineHeight: '1.6', flex: 1, maxHeight: '120px', overflow: 'hidden' }}>
-                              {log.content.length > 300 ? log.content.slice(0, 300) + '…' : log.content}
-                            </pre>
+                            <div style={{ flex: 1 }}>
+                              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordWrap: 'break-word', fontFamily: 'inherit', fontSize: '12px', color: 'var(--text-primary)', lineHeight: '1.6' }}>
+                                {displayContent}
+                              </pre>
+                              {isLong && (
+                                <button
+                                  onClick={() => setExpandedLogs(prev => ({ ...prev, [log.id]: !prev[log.id] }))}
+                                  style={{ marginTop: '4px', fontSize: '11px', color: 'var(--teal-primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '0', fontWeight: '600' }}
+                                >
+                                  {isExpanded ? '▲ 收起' : `▼ 展开全文（共 ${log.content.length} 字）`}
+                                </button>
+                              )}
+                            </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
                               <span style={{ fontSize: '10px', padding: '2px 7px', borderRadius: '20px', background: log.synced ? 'rgba(0,108,71,0.08)' : 'rgba(154,69,0,0.08)', border: log.synced ? '1px solid rgba(0,108,71,0.2)' : '1px solid rgba(154,69,0,0.2)', color: log.synced ? '#006c47' : '#9a4500', whiteSpace: 'nowrap' }}>
                                 {log.synced ? '✓ 已入 Wiki' : '○ 待同步'}

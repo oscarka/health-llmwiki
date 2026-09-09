@@ -1327,6 +1327,10 @@ ${formattedFactsForLLM}
 }`;
 
 
+    const s3PromptLen = stage3Prompt.length;
+    console.log(`[Stage 3] 📋 prompt长度=${s3PromptLen}字符 ≈${Math.ceil(s3PromptLen/2)}tokens，调用 LLM...`);
+    const s3LlmStart = Date.now();
+
     const stage3Response = await getOpenAI().chat.completions.create({
       model: process.env.SYNC_MODEL || 'deepseek-v4-flash-ga-260731',
       messages: [
@@ -1337,10 +1341,15 @@ ${formattedFactsForLLM}
       max_tokens: 16384,  // 全量 Wiki 页面输出防截断（当前~1600 tokens，预留 10x 增长空间）
       response_format: { type: 'json_object' }
     });
+    const s3LlmMs = Date.now() - s3LlmStart;
     const stage3Content = stage3Response.choices[0]?.message?.content || '{}';
+    const s3Usage = stage3Response.usage;
+    console.log(`[Stage 3] 🤖 LLM返回 耗时=${s3LlmMs}ms 输出=${stage3Content.length}字符 usage=${JSON.stringify(s3Usage)}`);
+
     let updatedWiki;
     try {
       updatedWiki = robustParseJson(stage3Content);
+      console.log(`[Stage 3] ✅ JSON解析成功，更新页面: ${Object.keys(updatedWiki).join(', ')}`);
     } catch (e) {
       throw new Error('Stage 3 JSON 解析失败: ' + e.message);
     }
@@ -1445,6 +1454,10 @@ ${content}
 ### 输出格式：
 请直接输出一个合法的 JSON 对象，包含所有整理后的页面（即使未修改的页面也需要输出完整内容），Key 为文件名，Value 为整理后的完整 Markdown 内容。不要包含 Markdown 格式包裹（如 \`\`\`json），不要有任何解释性前缀或后缀。`;
 
+    const estimatedTokens = Math.ceil(totalChars / 2);
+    console.log(`[Consolidate] 📋 估算 prompt tokens ≈ ${estimatedTokens}，开始调用 LLM...`);
+
+    const llmCallStart = Date.now();
     const consolidateResponse = await getOpenAI().chat.completions.create({
       model: process.env.CONSOLIDATE_MODEL || process.env.SYNC_MODEL || 'deepseek-v4-flash-ga-260731',
       messages: [
@@ -1455,27 +1468,63 @@ ${content}
       max_tokens: 16384,
       response_format: { type: 'json_object' }
     });
+    const llmMs = Date.now() - llmCallStart;
 
     const rawContent = consolidateResponse.choices[0]?.message?.content || '{}';
+    const usage = consolidateResponse.usage;
+    console.log(`[Consolidate] 🤖 LLM 返回 耗时=${llmMs}ms 输出=${rawContent.length}字符 usage=${JSON.stringify(usage)}`);
+
     let consolidatedWiki;
     try {
       consolidatedWiki = robustParseJson(rawContent);
+      console.log(`[Consolidate] ✅ JSON 解析成功，包含页面: ${Object.keys(consolidatedWiki).join(', ')}`);
     } catch (e) {
       throw new Error('整理结果 JSON 解析失败: ' + e.message);
     }
 
-    // 安全阀：每个页面整理后不得缩水超过 40%（防止 LLM 过度摘要）
-    const SHRINK_THRESHOLD = 0.6;
+    // 安全阀：不同页面采用不同阈值
+    // medication_plan.md：允许压缩到 25%（大量重复 nutrition block 合并属正常，68→10 个是合理压缩）
+    // 其他页面：不得缩水超过 40%（避免 LLM 过度摘要丢失关键病历）
+    const PAGE_THRESHOLDS = {
+      'medication_plan.md': 0.25,
+    };
+    const DEFAULT_THRESHOLD = 0.6;
     const rejected = [];
     for (const [pageName, newContent] of Object.entries(consolidatedWiki)) {
       if (!currentWiki[pageName]) continue;
       const oldLen = currentWiki[pageName].length;
       const newLen = (newContent || '').length;
-      if (oldLen > 200 && newLen < oldLen * SHRINK_THRESHOLD) {
+      const threshold = PAGE_THRESHOLDS[pageName] ?? DEFAULT_THRESHOLD;
+      const ratio = newLen / oldLen;
+      console.log(`[Consolidate] 📄 ${pageName}: ${oldLen}→${newLen}字符 (${(ratio*100).toFixed(0)}%, 阈值${(threshold*100).toFixed(0)}%)`);
+      if (oldLen > 200 && newLen < oldLen * threshold) {
         rejected.push(pageName);
         consolidatedWiki[pageName] = currentWiki[pageName]; // 回滚到原内容
-        console.warn(`[Consolidate] ⚠️ ${pageName} 缩水过多 (${oldLen}→${newLen}，${(newLen/oldLen*100).toFixed(0)}%)，已回滚`);
+        console.warn(`[Consolidate] ⚠️ ${pageName} 缩水超过阈值，已回滚`);
+      } else {
+        console.log(`[Consolidate] ✅ ${pageName} 整理通过`);
       }
+    }
+
+    // 溯源徽章行内去重：同一行出现相同 log_id 时只保留一次
+    let totalDedupRemoved = 0;
+    for (const [pageName, content] of Object.entries(consolidatedWiki)) {
+      if (!content) continue;
+      const deduped = content.split('\n').map(line => {
+        const badgeRe = /\[🔗 溯源\]\(([^)]+)\)/g;
+        const seen = new Set();
+        const newLine = line.replace(badgeRe, (match, logId) => {
+          if (seen.has(logId)) { totalDedupRemoved++; return ''; }
+          seen.add(logId);
+          return match;
+        });
+        // 清理因去重产生的多余空格
+        return newLine.replace(/  +/g, ' ').trimEnd();
+      }).join('\n');
+      consolidatedWiki[pageName] = deduped;
+    }
+    if (totalDedupRemoved > 0) {
+      console.log(`[Consolidate] 🔗 溯源徽章去重：移除 ${totalDedupRemoved} 个重复徽章`);
     }
 
     // 写入整理后的内容
