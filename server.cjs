@@ -1052,8 +1052,104 @@ function getOpenAI() {
   return _openaiClient;
 }
 
+// 9-A. 用户画像专项轻量同步（每3轮触发，只更新 user_profile.md）
+app.post('/api/clients/:id/sync-profile', async (req, res) => {
+  const { id } = req.params;
+  const { current_message, agent_reply, turns } = req.body || {};
+
+  try {
+    const client = await findClient(id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
+
+    // 只取最近 3 条日志，每条内容截断到 300 字，避免 prompt 过长导致 LLM 超时
+    const allLogs = await readLogs(id);
+    const recentLogs = allLogs.slice(-3);
+
+    // 读取当前 user_profile.md（截断到 800 字，减少 token 消耗）
+    const currentWiki = await readWikiPages(id);
+    const rawProfile = currentWiki['user_profile.md'] || '';
+    const currentProfile = rawProfile.length > 800 ? rawProfile.slice(0, 800) + '…（已截断）' : rawProfile;
+
+    // 构造对话摘要（每条日志截断到 300 字）
+    const logsText = recentLogs
+      .map(l => {
+        const text = typeof l.content === 'string' ? l.content : JSON.stringify(l.content);
+        return `[${l.id}] ${text.slice(0, 300)}${text.length > 300 ? '…' : ''}`;
+      })
+      .join('\n\n');
+    const currentTurnText = (current_message && agent_reply)
+      ? `\n\n[本轮新对话]\n用户：${current_message}\nAI：${agent_reply}`
+      : '';
+
+    const profilePrompt = `你是一个专业的用户画像分析助手，负责从对话记录中提炼用户的**非医疗**画像信息，写入 user_profile.md。
+
+【当前 user_profile.md 内容】：
+${currentProfile || '（暂无内容）'}
+
+【最近对话记录】：
+${logsText}${currentTurnText}
+
+请根据以上对话，更新并输出**完整**的 user_profile.md 内容，格式严格按照以下 Markdown 模板：
+
+# 用户画像与沟通注意点
+
+## 基本背景
+<!-- 年龄段、性别、职业背景等有助于沟通的非医疗信息 -->
+（根据对话填写或保留已有内容）
+
+## 沟通偏好
+<!-- 用户惯用语言、偏好简洁还是详细、是否喜欢追问 -->
+（根据对话填写或保留已有内容）
+
+## 消费心理与价格敏感度
+<!-- 对健康产品/服务的态度、价格敏感程度、决策风格（冲动/谨慎/需要对比）、家庭角色影响 -->
+（根据对话填写或保留已有内容）
+
+## 必须注意事项
+<!-- 对AI不能说的内容、禁忌话题、特殊敏感点 -->
+（根据对话填写或保留已有内容）
+
+## 个人与社会属性
+<!-- 家庭状况、主要照护者、经济情况、城市、医保类型等影响建议的背景 -->
+（根据对话填写或保留已有内容）
+
+规则：
+1. 如果没有相关信息，保留「暂无记录。」，不要编造内容
+2. 如果对话中有新信息，直接写入对应章节，不要堆叠历史版本
+3. 【消费心理与价格敏感度】是新增章节，请特别关注用户对价格、产品、购买的态度信号
+4. 直接输出 Markdown 内容，不要包裹在代码块中`;
+
+    const aiClient = getOpenAI();
+    const completion = await aiClient.chat.completions.create({
+      // 使用 SYNC_MODEL（deepseek v4 flash），不用 ARK_MODEL 以避免意外切换到 doubao 慢模型
+      model: process.env.SYNC_MODEL || process.env.ARK_MODEL || 'deepseek-v4-flash-ga-260731',
+      messages: [{ role: 'user', content: profilePrompt }],
+      max_tokens: 800,
+      temperature: 0.3,
+    });
+
+    const newProfileContent = completion.choices[0]?.message?.content?.trim() || '';
+    if (!newProfileContent || newProfileContent.length < 50) {
+      return res.status(500).json({ error: 'AI 返回内容过短，同步跳过' });
+    }
+
+    // 写入 user_profile.md（同时写 PostgreSQL DB + 本地文件，读取优先走 DB）
+    await writeWikiPages(id, { 'user_profile.md': newProfileContent });
+
+    // 更新 lastSyncAt
+    await updateClientMeta(id, { lastSyncAt: Date.now() });
+
+    console.log(`[sync-profile] ✅ user_profile.md 已更新 clientId=${id} turns=${turns} len=${newProfileContent.length}`);
+    res.json({ success: true, profileLen: newProfileContent.length, turns });
+  } catch (err) {
+    console.error(`[sync-profile] ❌ 失败 clientId=${id}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 9. Wiki 同步（多阶段 AI Pipeline）
 app.post('/api/clients/:id/sync', async (req, res) => {
+
   const { id } = req.params;
   const syncStartTime = Date.now();
 
