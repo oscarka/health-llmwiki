@@ -984,6 +984,7 @@ app.post('/api/clients/:id/logs', async (req, res) => {
     };
 
     const saved = await appendLog(id, newLog);
+    checkAndTriggerAutoProfileSync(id);
     res.status(201).json(saved);
   } catch (err) {
     console.error('[POST /clients/:id/logs]', err);
@@ -1023,6 +1024,7 @@ app.post('/api/clients/:id/logs/batch', async (req, res) => {
       insertedIds.push(newLog.id);
     }
 
+    checkAndTriggerAutoProfileSync(id);
     res.status(201).json({
       success: true,
       inserted: insertedIds.length,
@@ -1052,36 +1054,35 @@ function getOpenAI() {
   return _openaiClient;
 }
 
-// 9-A. 用户画像专项轻量同步（每3轮触发，只更新 user_profile.md）
-app.post('/api/clients/:id/sync-profile', async (req, res) => {
-  const { id } = req.params;
-  const { current_message, agent_reply, turns } = req.body || {};
+// 记录各 client 上次 profile 同步时的日志总数，避免重复触发
+const _profileSyncLogCount = new Map();
 
-  try {
-    const client = await findClient(id);
-    if (!client) return res.status(404).json({ error: '客户不存在' });
+async function executeProfileSync(id, options = {}) {
+  const { current_message, agent_reply, turns, reason } = options;
+  const client = await findClient(id);
+  if (!client) throw new Error('客户不存在');
 
-    // 只取最近 3 条日志，每条内容截断到 300 字，避免 prompt 过长导致 LLM 超时
-    const allLogs = await readLogs(id);
-    const recentLogs = allLogs.slice(-3);
+  // 只取最近 3 条日志，每条内容截断到 300 字，避免 prompt 过长导致 LLM 超时
+  const allLogs = await readLogs(id);
+  const recentLogs = allLogs.slice(-3);
 
-    // 读取当前 user_profile.md（截断到 800 字，减少 token 消耗）
-    const currentWiki = await readWikiPages(id);
-    const rawProfile = currentWiki['user_profile.md'] || '';
-    const currentProfile = rawProfile.length > 800 ? rawProfile.slice(0, 800) + '…（已截断）' : rawProfile;
+  // 读取当前 user_profile.md（截断到 800 字，减少 token 消耗）
+  const currentWiki = await readWikiPages(id);
+  const rawProfile = currentWiki['user_profile.md'] || '';
+  const currentProfile = rawProfile.length > 800 ? rawProfile.slice(0, 800) + '…（已截断）' : rawProfile;
 
-    // 构造对话摘要（每条日志截断到 300 字）
-    const logsText = recentLogs
-      .map(l => {
-        const text = typeof l.content === 'string' ? l.content : JSON.stringify(l.content);
-        return `[${l.id}] ${text.slice(0, 300)}${text.length > 300 ? '…' : ''}`;
-      })
-      .join('\n\n');
-    const currentTurnText = (current_message && agent_reply)
-      ? `\n\n[本轮新对话]\n用户：${current_message}\nAI：${agent_reply}`
-      : '';
+  // 构造对话摘要（每条日志截断到 300 字）
+  const logsText = recentLogs
+    .map(l => {
+      const text = typeof l.content === 'string' ? l.content : JSON.stringify(l.content);
+      return `[${l.id}] ${text.slice(0, 300)}${text.length > 300 ? '…' : ''}`;
+    })
+    .join('\n\n');
+  const currentTurnText = (current_message && agent_reply)
+    ? `\n\n[本轮新对话]\n用户：${current_message}\nAI：${agent_reply}`
+    : '';
 
-    const profilePrompt = `你是一个专业的用户画像分析助手，负责从对话记录中提炼用户的**非医疗**画像信息，写入 user_profile.md。
+  const profilePrompt = `你是一个专业的用户画像分析助手，负责从对话记录中提炼用户的**非医疗**画像信息，写入 user_profile.md。
 
 【当前 user_profile.md 内容】：
 ${currentProfile || '（暂无内容）'}
@@ -1119,28 +1120,50 @@ ${logsText}${currentTurnText}
 3. 【消费心理与价格敏感度】是新增章节，请特别关注用户对价格、产品、购买的态度信号
 4. 直接输出 Markdown 内容，不要包裹在代码块中`;
 
-    const aiClient = getOpenAI();
-    const completion = await aiClient.chat.completions.create({
-      // 使用 SYNC_MODEL（deepseek v4 flash），不用 ARK_MODEL 以避免意外切换到 doubao 慢模型
-      model: process.env.SYNC_MODEL || process.env.ARK_MODEL || 'deepseek-v4-flash-ga-260731',
-      messages: [{ role: 'user', content: profilePrompt }],
-      max_tokens: 800,
-      temperature: 0.3,
-    });
+  const aiClient = getOpenAI();
+  const completion = await aiClient.chat.completions.create({
+    // 使用 SYNC_MODEL（deepseek v4 flash），不用 ARK_MODEL 以避免意外切换到 doubao 慢模型
+    model: process.env.SYNC_MODEL || process.env.ARK_MODEL || 'deepseek-v4-flash-ga-260731',
+    messages: [{ role: 'user', content: profilePrompt }],
+    max_tokens: 800,
+    temperature: 0.3,
+  });
 
-    const newProfileContent = completion.choices[0]?.message?.content?.trim() || '';
-    if (!newProfileContent || newProfileContent.length < 50) {
-      return res.status(500).json({ error: 'AI 返回内容过短，同步跳过' });
+  const newProfileContent = completion.choices[0]?.message?.content?.trim() || '';
+  if (!newProfileContent || newProfileContent.length < 50) {
+    throw new Error('AI 返回内容过短，同步跳过');
+  }
+
+  // 写入 user_profile.md（同时写 PostgreSQL DB + 本地文件，读取优先走 DB）
+  await writeWikiPages(id, { 'user_profile.md': newProfileContent });
+
+  // 更新 lastSyncAt
+  await updateClientMeta(id, { lastSyncAt: Date.now() });
+
+  console.log(`[sync-profile] ✅ user_profile.md 已更新 clientId=${id} reason=${reason || turns || 'manual'} len=${newProfileContent.length}`);
+  return { success: true, profileLen: newProfileContent.length, turns };
+}
+
+function checkAndTriggerAutoProfileSync(clientId) {
+  readLogs(clientId).then(allLogs => {
+    const count = (allLogs || []).length;
+    const lastCount = _profileSyncLogCount.get(clientId) || 0;
+    if (count - lastCount >= 3) {
+      _profileSyncLogCount.set(clientId, count);
+      console.log(`[AutoProfileSync] 发现新增日志达到3条，自动触发轻量画像同步 clientId=${clientId} totalLogs=${count}`);
+      executeProfileSync(clientId, { reason: `auto_3_logs(total=${count})` }).catch(err => {
+        console.warn(`[AutoProfileSync] 画像更新失败 clientId=${clientId}:`, err.message);
+      });
     }
+  }).catch(() => {});
+}
 
-    // 写入 user_profile.md（同时写 PostgreSQL DB + 本地文件，读取优先走 DB）
-    await writeWikiPages(id, { 'user_profile.md': newProfileContent });
-
-    // 更新 lastSyncAt
-    await updateClientMeta(id, { lastSyncAt: Date.now() });
-
-    console.log(`[sync-profile] ✅ user_profile.md 已更新 clientId=${id} turns=${turns} len=${newProfileContent.length}`);
-    res.json({ success: true, profileLen: newProfileContent.length, turns });
+// 9-A. 用户画像专项轻量同步（支持手动调用与系统调用，只更新 user_profile.md）
+app.post('/api/clients/:id/sync-profile', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await executeProfileSync(id, req.body || {});
+    res.json(result);
   } catch (err) {
     console.error(`[sync-profile] ❌ 失败 clientId=${id}:`, err.message);
     res.status(500).json({ error: err.message });
