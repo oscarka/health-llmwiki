@@ -316,7 +316,72 @@ const updateClientMeta = async (id, fields) => {
   return updated || null;
 };
 
+// ──────────────────── 服务权限（线下服务 / 技能服务，按人）────────────────────
+const PERMS_FILE = path.join(DATA_DIR, 'service_permissions.json');
+const OFFLINE_SERVICE_KEYS = ['stair', 'nurse', 'escort', 'meal'];
+const defaultPermissions = () => ({
+  offline_care: true,
+  offline_services: { stair: true, nurse: true, escort: true, meal: true },
+  skill_service: true,
+  updatedAt: null,
+});
+const readPermsFile = () => {
+  try { return JSON.parse(fs.readFileSync(PERMS_FILE, 'utf8')); } catch (e) { return {}; }
+};
+const writePermsFile = (obj) => {
+  try { fs.writeFileSync(PERMS_FILE, JSON.stringify(obj, null, 2)); } catch (e) {}
+};
+const mergePermissions = (base, patch) => {
+  const out = { ...base, offline_services: { ...base.offline_services } };
+  if (typeof patch.offline_care === 'boolean') out.offline_care = patch.offline_care;
+  if (typeof patch.skill_service === 'boolean') out.skill_service = patch.skill_service;
+  if (patch.offline_services && typeof patch.offline_services === 'object') {
+    for (const k of OFFLINE_SERVICE_KEYS) {
+      if (typeof patch.offline_services[k] === 'boolean') out.offline_services[k] = patch.offline_services[k];
+    }
+  }
+  return out;
+};
+const ensurePermsTable = async () => {
+  try {
+    await db.query(`CREATE TABLE IF NOT EXISTS llmwiki.client_service_permissions (
+      client_id TEXT PRIMARY KEY, perms JSONB NOT NULL, updated_at BIGINT)`, []);
+  } catch (e) {}
+};
+const getPermissions = async (id) => {
+  try {
+    const r = await db.query('SELECT perms, updated_at FROM llmwiki.client_service_permissions WHERE client_id=$1', [id]);
+    if (r && r.rows && r.rows[0]) {
+      return { ...mergePermissions(defaultPermissions(), r.rows[0].perms || {}), updatedAt: r.rows[0].updated_at ? new Date(Number(r.rows[0].updated_at)).toISOString() : null };
+    }
+  } catch (e) {}
+  const f = readPermsFile()[id];
+  return f ? { ...mergePermissions(defaultPermissions(), f), updatedAt: f.updatedAt || null } : defaultPermissions();
+};
+const savePermissions = async (id, patch) => {
+  const merged = mergePermissions(await getPermissions(id), patch);
+  const now = Date.now();
+  merged.updatedAt = new Date(now).toISOString();
+  try {
+    await db.query(`INSERT INTO llmwiki.client_service_permissions (client_id, perms, updated_at)
+      VALUES ($1,$2,$3) ON CONFLICT (client_id) DO UPDATE SET perms=EXCLUDED.perms, updated_at=EXCLUDED.updated_at`,
+      [id, JSON.stringify(merged), now]);
+  } catch (e) {}
+  const all = readPermsFile();
+  all[id] = merged;
+  writePermsFile(all);
+  return merged;
+};
+ensurePermsTable();
+
 const deleteClientData = async (id) => {
+  try {
+    await db.query('DELETE FROM llmwiki.client_service_permissions WHERE client_id=$1', [id]);
+  } catch (err) {}
+  try {
+    const all = readPermsFile();
+    if (all[id]) { delete all[id]; writePermsFile(all); }
+  } catch (err) {}
   try {
     await db.query('DELETE FROM llmwiki.clients WHERE id=$1', [id]);
   } catch (err) {}
@@ -817,6 +882,41 @@ app.delete('/api/clients/:id', async (req, res) => {
   } catch (err) {
     console.error('[DELETE /clients/:id]', err);
     res.status(500).json({ error: '删除客户失败: ' + err.message });
+  }
+});
+
+// 4b. 服务权限：读取 / 更新（线下服务 + 技能服务，按人）
+app.get('/api/clients/:id/service-permissions', async (req, res) => {
+  try {
+    const client = await findClient(req.params.id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
+    res.json(await getPermissions(req.params.id));
+  } catch (err) {
+    res.status(500).json({ error: '读取服务权限失败: ' + err.message });
+  }
+});
+
+app.put('/api/clients/:id/service-permissions', async (req, res) => {
+  try {
+    const client = await findClient(req.params.id);
+    if (!client) return res.status(404).json({ error: '客户不存在' });
+    const b = req.body || {};
+    const bad = (v) => v !== undefined && typeof v !== 'boolean';
+    if (bad(b.offline_care) || bad(b.skill_service)) {
+      return res.status(400).json({ error: 'offline_care / skill_service 必须为布尔值' });
+    }
+    if (b.offline_services !== undefined) {
+      if (typeof b.offline_services !== 'object' || b.offline_services === null) {
+        return res.status(400).json({ error: 'offline_services 必须为对象' });
+      }
+      for (const [k, v] of Object.entries(b.offline_services)) {
+        if (!OFFLINE_SERVICE_KEYS.includes(k)) return res.status(400).json({ error: '未知服务类型: ' + k });
+        if (typeof v !== 'boolean') return res.status(400).json({ error: `offline_services.${k} 必须为布尔值` });
+      }
+    }
+    res.json(await savePermissions(req.params.id, b));
+  } catch (err) {
+    res.status(500).json({ error: '更新服务权限失败: ' + err.message });
   }
 });
 

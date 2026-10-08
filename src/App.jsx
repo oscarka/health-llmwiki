@@ -120,6 +120,33 @@ export default function App() {
   // 弹窗与表单状态
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showPermModal, setShowPermModal] = useState(false);
+  const [perms, setPerms] = useState(null);
+  const [permSaving, setPermSaving] = useState(false);
+
+  const openPermModal = async () => {
+    if (!selectedClientId) return;
+    setPerms(null);
+    setShowPermModal(true);
+    try {
+      const res = await fetch(`/api/clients/${selectedClientId}/service-permissions`);
+      if (res.ok) setPerms(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const savePerms = async () => {
+    if (!perms) return;
+    setPermSaving(true);
+    try {
+      const res = await fetch(`/api/clients/${selectedClientId}/service-permissions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ offline_care: perms.offline_care, offline_services: perms.offline_services, skill_service: perms.skill_service }),
+      });
+      if (res.ok) { setShowPermModal(false); } else { alert('保存失败'); }
+    } catch (e) { alert('保存失败: ' + e.message); }
+    setPermSaving(false);
+  };
   const [newClientData, setNewClientData] = useState({ name: '', age: '', gender: '男', phone: '', allergies: '' });
   const [editClientData, setEditClientData] = useState({ name: '', age: '', gender: '男', phone: '', allergies: '' });
 
@@ -784,6 +811,15 @@ export default function App() {
 
                   <button
                     className="btn-action-outline"
+                    onClick={openPermModal}
+                    title="控制该患者可使用的线下服务与技能服务"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#d97706' }}>admin_panel_settings</span>
+                    <span>服务权限</span>
+                  </button>
+
+                  <button
+                    className="btn-action-outline"
                     onClick={handleDownloadWiki}
                     title="导出整套 Markdown 健康维基档案"
                   >
@@ -1203,6 +1239,58 @@ export default function App() {
                 <button type="submit" className="btn-action-sync">保存记录</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── 弹窗: 服务权限（线下服务 / 技能服务） ── */}
+      {showPermModal && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: '#ffffff', borderRadius: '20px', padding: '26px', width: '440px', boxShadow: '0 20px 40px rgba(0,0,0,0.15)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a' }}>服务权限</h3>
+              <button type="button" onClick={() => setShowPermModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            {!perms ? (
+              <div style={{ fontSize: '13px', color: '#64748b' }}>加载中...</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {[
+                  ['offline_care', '线下服务总开关', null],
+                  ['stair', '助爬楼梯', 'offline_services'],
+                  ['nurse', '上门护理', 'offline_services'],
+                  ['escort', '陪诊陪护', 'offline_services'],
+                  ['meal', '临床营养餐', 'offline_services'],
+                  ['skill_service', '技能服务（AI 技能调用）', null],
+                ].map(([key, label, group]) => {
+                  const checked = group ? perms[group][key] : perms[key];
+                  const disabled = group && !perms.offline_care;
+                  return (
+                    <label key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '13px', fontWeight: group ? '500' : '700', paddingLeft: group ? '18px' : 0, opacity: disabled ? 0.45 : 1 }}>
+                      <span>{label}</span>
+                      <input
+                        type="checkbox"
+                        data-testid={`perm-${key}`}
+                        checked={!!checked}
+                        disabled={disabled}
+                        onChange={e => setPerms(group
+                          ? { ...perms, [group]: { ...perms[group], [key]: e.target.checked } }
+                          : { ...perms, [key]: e.target.checked })}
+                      />
+                    </label>
+                  );
+                })}
+                <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                  {perms.updatedAt ? `上次修改：${new Date(perms.updatedAt).toLocaleString()}` : '尚未修改过（默认全部开启）'}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
+                  <button type="button" className="btn-action-outline" onClick={() => setShowPermModal(false)}>取消</button>
+                  <button type="button" className="btn-action-outline" onClick={savePerms} disabled={permSaving} style={{ color: '#0d9488' }}>{permSaving ? '保存中...' : '保存'}</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
