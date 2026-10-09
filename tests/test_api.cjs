@@ -96,6 +96,17 @@ async function testClientsCRUD() {
 
   const { status: s7 } = await req('PUT', '/api/clients/nonexistent_id_xyz', { age: 50 });
   assert('PUT unknown client returns 404', s7 === 404, s7);
+
+  // D-D1: 全空格姓名（人工表单，无 id）→ 400；系统自动建档（带 id、空姓名）→ 默认名称
+  const { status: s8 } = await req('POST', '/api/clients', { name: '   ' });
+  assert('POST with whitespace-only name returns 400', s8 === 400, s8);
+  const autoId = `test_blankname_${Date.now()}`;
+  const { status: s9, data: d9 } = await req('POST', '/api/clients', { id: autoId, name: '   ' });
+  assert('POST with id + blank name gets default name (201)', s9 === 201 && d9 && /^未命名客户_/.test(d9.name), `${s9} ${d9?.name}`);
+  // D-07: 缺少 content 的 Wiki 写入 → 400（而不是 500）
+  const { status: s10 } = await req('PUT', `/api/clients/${autoId}/wiki/index.md`, {});
+  assert('PUT wiki without content returns 400', s10 === 400, s10);
+  await req('DELETE', `/api/clients/${autoId}`);
 }
 
 // ─── Section: Service Permissions (线下服务 / 技能服务) ───────────────────────
