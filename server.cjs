@@ -622,9 +622,7 @@ const createDefaultWiki = (client) => {
 
 **溯源引用格式**：在 Wiki 内容中使用 \`[🔗 溯源](log_id)\` 标记，点击可查看原始记录。
 
-例如（AI 同步后自动生成真实引用）：
-* 患者反映血压偏高 (158/98 mmHg) —— 此处将由 AI 自动挂载 🔗 溯源引用
-* 化验单提示 LDL-C 升高 —— 此处将由 AI 自动挂载 🔗 溯源引用
+（AI 同步后，每条观察后面会自动附上对应原始记录的溯源标记。）
 
 > [!NOTE]
 > 📋 **溯源规则**：AI 在更新 Wiki 时应为每条关键观察挂载对应的溯源引用，保证每条信息都可回溯至原始证据。
@@ -673,8 +671,36 @@ const estimateTokens = (text) => {
   return Math.ceil(chineseChars * 0.6 + otherChars * 0.25);
 };
 
+// 去除模板占位噪音（斜体说明行、「暂无记录」行、全是占位符的空表格），避免干扰 AI
+const stripTemplateNoise = (md) => {
+  if (!md) return md;
+  const isPlaceholderRow = (line) => {
+    const cells = line.split('|').map(c => c.trim()).filter(c => c !== '');
+    return cells.length > 0 && cells.some(c => /暂无记录|暂无设定/.test(c)) || (cells.length > 0 && cells.every(c => /^[—-]+$/.test(c)));
+  };
+  const lines = md.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^\s*\|/.test(line)) {
+      const block = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i])) block.push(lines[i++]);
+      const header = block.slice(0, 2);
+      const body = block.slice(2).filter(l => !isPlaceholderRow(l));
+      if (body.length > 0) out.push(...header, ...body);
+      continue;
+    }
+    if (/^\s*\*\(.*\)\*\s*$/.test(line)) { i++; continue; }
+    if (/^\s*(\* )?暂无记录。?\s*$/.test(line) || /暂无 AI 汇总关注项/.test(line) || /^\s*\*.*[：:](暂无记录|待大模型汇总录入)。?\s*$/.test(line)) { i++; continue; }
+    out.push(line);
+    i++;
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n');
+};
+
 const buildHealthContext = (wikiPages) => {
-  const indexContent = wikiPages['index.md'] || '';
+  const indexContent = stripTemplateNoise(wikiPages['index.md'] || '');
   const toolHint = `
 ---
 📋 **可按需调用以下工具获取更多档案**（如用户询问具体用药、化验详情时调用）：
@@ -820,8 +846,17 @@ app.get('/api/clients', async (req, res) => {
 // 2. 创建客户
 app.post('/api/clients', async (req, res) => {
   try {
-    const { id: externalId, name, age, gender, phone, allergies } = req.body;
-    if (!name) return res.status(400).json({ error: '姓名是必填项' });
+    const { id: externalId, age, gender, phone, allergies } = req.body;
+    let name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    if (!name) {
+      // 系统自动建档（平台按成员 ID 带 id 调用）：给默认名称，不阻断流程；
+      // 人工填写表单（无 id）：明确提示用户补充姓名
+      if (externalId) {
+        name = `未命名客户_${String(externalId).slice(-4)}`;
+      } else {
+        return res.status(400).json({ error: '姓名是必填项，不能为空或全是空格' });
+      }
+    }
 
     const clientId = externalId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
@@ -856,8 +891,9 @@ app.put('/api/clients/:id', async (req, res) => {
     const client = await findClient(id);
     if (!client) return res.status(404).json({ error: '客户不存在' });
 
+    const trimmedName = typeof name === 'string' ? name.trim() : '';
     const updated = await updateClientMeta(id, {
-      name: name || client.name,
+      name: trimmedName || client.name,
       age: age !== undefined ? parseInt(age) : client.age,
       gender: gender !== undefined ? gender : client.gender,
       phone: phone !== undefined ? phone : client.phone,
@@ -1026,12 +1062,13 @@ app.get('/api/clients/:id/context-inject', async (req, res) => {
 app.put('/api/clients/:id/wiki/:pageName', async (req, res) => {
   try {
     const { id, pageName } = req.params;
-    const { content } = req.body;
+    const { content } = req.body || {};
 
     if (!await findClient(id)) return res.status(404).json({ error: '客户不存在' });
     if (!pageName.endsWith('.md')) return res.status(400).json({ error: '仅支持保存 .md 格式的 Wiki 页面' });
     if (pageName.includes('..') || pageName.includes('/') || pageName.includes('\\'))
       return res.status(400).json({ error: '页面名称不合法' });
+    if (typeof content !== 'string') return res.status(400).json({ error: 'content 必填，且必须是字符串' });
 
     await writeWikiPages(id, { [pageName]: content });
     res.json({ success: true, message: `页面 ${pageName} 保存成功` });
@@ -1226,6 +1263,7 @@ ${logsText}${currentTurnText}
     model: process.env.SYNC_MODEL || process.env.ARK_MODEL || 'deepseek-v4-flash-ga-260731',
     messages: [{ role: 'user', content: profilePrompt }],
     max_tokens: 800,
+    thinking: { type: process.env.SYNC_THINKING === 'enabled' ? 'enabled' : 'disabled' },
     temperature: 0.3,
   });
 
@@ -1374,6 +1412,7 @@ ${log.content}
       ],
       temperature: 0.1,
       max_tokens: 4096,
+      thinking: { type: process.env.SYNC_THINKING === 'enabled' ? 'enabled' : 'disabled' },
       response_format: { type: 'json_object' }
     });
     const stage1Content = stage1Response.choices[0]?.message?.content || '{}';
@@ -1572,6 +1611,7 @@ ${formattedFactsForLLM}
       ],
       temperature: 0.1,
       max_tokens: 16384,  // 全量 Wiki 页面输出防截断（当前~1600 tokens，预留 10x 增长空间）
+      thinking: { type: process.env.SYNC_THINKING === 'enabled' ? 'enabled' : 'disabled' },
       response_format: { type: 'json_object' }
     });
     const s3LlmMs = Date.now() - s3LlmStart;
@@ -1699,6 +1739,7 @@ ${content}
       ],
       temperature: 0.1,
       max_tokens: 16384,
+      thinking: { type: process.env.SYNC_THINKING === 'enabled' ? 'enabled' : 'disabled' },
       response_format: { type: 'json_object' }
     });
     const llmMs = Date.now() - llmCallStart;

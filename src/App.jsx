@@ -361,21 +361,26 @@ export default function App() {
 
   const handleCreateClient = async (e) => {
     e.preventDefault();
-    if (!newClientData.name) return;
+    const trimmedName = (newClientData.name || '').trim();
+    if (!trimmedName) {
+      showToast('请填写客户姓名（不能为空或全是空格）', 'error');
+      return;
+    }
     try {
       const res = await fetch('/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newClientData)
+        body: JSON.stringify({ ...newClientData, name: trimmedName })
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '创建失败');
       showToast(`客户 ${data.name} 创建成功并初始化健康Wiki！`, 'success');
       setShowAddModal(false);
       setNewClientData({ name: '', age: '', gender: '男', phone: '', allergies: '' });
       await fetchClients();
       setSelectedClientId(data.id);
     } catch (err) {
-      showToast('创建客户失败', 'error');
+      showToast(`创建客户失败: ${err.message}`, 'error');
     }
   };
 
