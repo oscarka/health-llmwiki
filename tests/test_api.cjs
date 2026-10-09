@@ -98,6 +98,44 @@ async function testClientsCRUD() {
   assert('PUT unknown client returns 404', s7 === 404, s7);
 }
 
+// ─── Section: Service Permissions (线下服务 / 技能服务) ───────────────────────
+
+async function testServicePermissions() {
+  section('P. Service Permissions');
+  const { data: c } = await req('POST', '/api/clients', { name: 'test_sandbox_perm' });
+  const id = c && c.id;
+  try {
+    const g0 = await req('GET', `/api/clients/${id}/service-permissions`);
+    assert('GET default returns 200', g0.status === 200, g0.status);
+    assert('Default all enabled', g0.data && g0.data.offline_care === true && g0.data.skill_service === true && g0.data.offline_services.stair === true, g0.data);
+
+    const p1 = await req('PUT', `/api/clients/${id}/service-permissions`, { offline_services: { nurse: false } });
+    assert('PUT partial returns 200', p1.status === 200, p1.status);
+    assert('nurse disabled, others untouched', p1.data.offline_services.nurse === false && p1.data.offline_services.meal === true && p1.data.skill_service === true, p1.data);
+
+    const p2 = await req('PUT', `/api/clients/${id}/service-permissions`, { offline_care: false, skill_service: false });
+    assert('master switch + skill off', p2.data.offline_care === false && p2.data.skill_service === false, p2.data);
+    assert('nurse stays false after later update', p2.data.offline_services.nurse === false, p2.data);
+
+    const g1 = await req('GET', `/api/clients/${id}/service-permissions`);
+    assert('GET persists changes', g1.data.offline_care === false && g1.data.skill_service === false && !!g1.data.updatedAt, g1.data);
+
+    const b1 = await req('PUT', `/api/clients/${id}/service-permissions`, { offline_care: 'yes' });
+    assert('Non-boolean returns 400', b1.status === 400 && b1.data && b1.data.error, b1);
+    const b2 = await req('PUT', `/api/clients/${id}/service-permissions`, { offline_services: { teleport: true } });
+    assert('Unknown service returns 400', b2.status === 400 && b2.data && b2.data.error, b2);
+    const b3 = await req('PUT', `/api/clients/${id}/service-permissions`, { offline_services: { stair: 1 } });
+    assert('Non-boolean service returns 400', b3.status === 400, b3.status);
+
+    const n1 = await req('GET', '/api/clients/nonexistent_id_xyz/service-permissions');
+    assert('GET unknown client returns 404', n1.status === 404, n1.status);
+    const n2 = await req('PUT', '/api/clients/nonexistent_id_xyz/service-permissions', { skill_service: false });
+    assert('PUT unknown client returns 404', n2.status === 404, n2.status);
+  } finally {
+    if (id) await req('DELETE', `/api/clients/${id}`);
+  }
+}
+
 // ─── Section 2: Wiki Pages ───────────────────────────────────────────────────
 
 async function testWikiPages() {
@@ -479,6 +517,7 @@ async function main() {
 
   try {
     await testClientsCRUD();
+    await testServicePermissions();
     await testWikiPages();
     await testLogs();
     await testCognitiveSkeletonStructure();
