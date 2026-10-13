@@ -928,6 +928,22 @@ app.delete('/api/clients/:id', async (req, res) => {
 // 4a. 健康计划板块（独立于档案 Wiki：版本化、确认才生效）
 const planApi = registerHealthPlan(app, { db, findClient, appendLog });
 
+// 4a'. 运行时自检（只读）：线上版本与关键配置是否到位。只返回"是否已设置"，不返回任何密钥值。
+app.get('/api/_meta', async (req, res) => {
+  const has = (k) => Boolean(process.env[k] && String(process.env[k]).trim());
+  const meta = {
+    revision: process.env.K_REVISION || 'local',
+    service: process.env.K_SERVICE || 'local',
+    node_env: process.env.NODE_ENV || '',
+    models: { chat: process.env.ARK_MODEL || '', sync: process.env.SYNC_MODEL || '', vision: process.env.VISION_MODEL || '' },
+    secrets_present: { ARK_API_KEY: has('ARK_API_KEY'), DATABASE_URL: has('DATABASE_URL'), GEMINI_API_KEY: has('GEMINI_API_KEY') },
+    features: { health_plan: true },
+  };
+  try { await db.query('SELECT 1 FROM llmwiki.plan_versions LIMIT 1'); meta.plan_table = true; } catch (e) { meta.plan_table = false; }
+  try { fs.accessSync(DATA_DIR, fs.constants.W_OK); meta.data_dir_writable = true; } catch (e) { meta.data_dir_writable = false; }
+  res.json(meta);
+});
+
 // 4b. 服务权限：读取 / 更新（线下服务 + 技能服务，按人）
 app.get('/api/clients/:id/service-permissions', async (req, res) => {
   try {

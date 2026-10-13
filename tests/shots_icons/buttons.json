@@ -1,0 +1,14 @@
+[
+  {
+    "title": "查看 3 条原始沟通记录",
+    "text": "forum"
+  },
+  {
+    "title": "导出当前 index.md",
+    "text": "download"
+  },
+  {
+    "title": "手动编辑当前 Markdown 页面",
+    "text": "edit_note"
+  }
+]

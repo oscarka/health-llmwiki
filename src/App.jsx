@@ -891,7 +891,6 @@ export default function App() {
                       style={{ position: 'relative' }}
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>forum</span>
-                      <span>原始日志</span>
                       {logs.some(l => !l.synced) && (
                         <span style={{
                           position: 'absolute', top: '-2px', right: '-2px',
@@ -908,7 +907,6 @@ export default function App() {
                       title={`导出当前 ${activeWikiPage}`}
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>download</span>
-                      <span>导出</span>
                     </button>
 
                     {!isEditingWiki ? (
@@ -921,7 +919,6 @@ export default function App() {
                         title="手动编辑当前 Markdown 页面"
                       >
                         <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>edit_note</span>
-                        <span>编辑</span>
                       </button>
                     ) : (
                       <div style={{ display: 'flex', gap: '6px' }}>
