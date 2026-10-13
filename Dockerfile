@@ -24,6 +24,7 @@ RUN npm ci --omit=dev
 # 复制后端所需文件
 COPY server.cjs ./
 COPY generic_wiki/ ./generic_wiki/
+COPY health_plan/ ./health_plan/
 COPY scripts/ ./scripts/
 
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import HealthWikiRenderer from './components/HealthWikiRenderer';
 import AnatomicalHealthMap from './components/AnatomicalHealthMap';
+import HealthPlanPanel from './components/HealthPlanPanel';
 
 // ── 预置示例模板 ──
 const SAMPLE_TEMPLATES = {
@@ -339,7 +340,7 @@ export default function App() {
       const wikiData = await wikiRes.json();
       if (wikiData && typeof wikiData === 'object' && !wikiData.error) {
         setWikiPages(wikiData);
-        if (!wikiData[activeWikiPage]) {
+        if (activeWikiPage !== 'plan' && !wikiData[activeWikiPage]) {
           const availablePages = Object.keys(wikiData);
           if (availablePages.length > 0) {
             setActiveWikiPage(availablePages[0]);
@@ -870,6 +871,16 @@ export default function App() {
                           {getPageDisplayName(page)}
                         </button>
                       ))}
+                    <button
+                      data-testid="tab-plan"
+                      className={`sheet-tab-btn ${activeWikiPage === 'plan' ? 'active' : ''}`}
+                      onClick={() => {
+                        setActiveWikiPage('plan');
+                        setIsEditingWiki(false);
+                      }}
+                    >
+                      🗓 健康计划
+                    </button>
                   </div>
 
                   <div className="sheet-nav-actions">
@@ -890,6 +901,7 @@ export default function App() {
                       )}
                     </button>
 
+                    {activeWikiPage !== 'plan' && (<>
                     <button
                       className="btn-sheet-action"
                       onClick={handleDownloadCurrentPage}
@@ -928,6 +940,7 @@ export default function App() {
                         </button>
                       </div>
                     )}
+                    </>)}
                   </div>
                 </div>
 
@@ -953,7 +966,9 @@ export default function App() {
 
                 {/* Markdown 渲染流 或 手动编辑视窗 */}
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                  {isEditingWiki ? (
+                  {activeWikiPage === 'plan' ? (
+                    <HealthPlanPanel clientId={selectedClient.id} />
+                  ) : isEditingWiki ? (
                     <div className="wiki-editor-container">
                       <div className="wiki-editor-hint">
                         <span>正在编辑 <strong>{getPageDisplayName(activeWikiPage)}</strong> ({activeWikiPage})</span>

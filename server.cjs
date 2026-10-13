@@ -16,6 +16,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // ── 通用 Wiki 记忆库 API（Phase 3 — 多 Domain 隔离，不影响现有健康接口）──
 const genericWikiRouter = require('./generic_wiki/apiRoutes.cjs');
+const { registerHealthPlan } = require('./health_plan/healthPlan.cjs');
 app.use('/api/generic-wiki', genericWikiRouter);
 
 // ──────────────────── 前端静态文件 ────────────────────
@@ -377,6 +378,9 @@ ensurePermsTable();
 const deleteClientData = async (id) => {
   try {
     await db.query('DELETE FROM llmwiki.client_service_permissions WHERE client_id=$1', [id]);
+  } catch (err) {}
+  try {
+    await db.query('DELETE FROM llmwiki.plan_versions WHERE client_id=$1', [id]);
   } catch (err) {}
   try {
     const all = readPermsFile();
@@ -921,6 +925,9 @@ app.delete('/api/clients/:id', async (req, res) => {
   }
 });
 
+// 4a. 健康计划板块（独立于档案 Wiki：版本化、确认才生效）
+const planApi = registerHealthPlan(app, { db, findClient, appendLog });
+
 // 4b. 服务权限：读取 / 更新（线下服务 + 技能服务，按人）
 app.get('/api/clients/:id/service-permissions', async (req, res) => {
   try {
@@ -1020,6 +1027,9 @@ app.get('/api/clients/:id/context-inject', async (req, res) => {
 
     const wikiPages = await readWikiPages(id);
     const rawProfile = wikiPages['user_profile.md'] || '';
+    // 健康计划：只带生效版本的一页纸摘要（计划不在档案 Wiki 里，独立板块）
+    let healthPlan = '';
+    try { healthPlan = planApi.renderPlanSummary(await planApi.getActive(id)); } catch (e) { /* 计划读取失败不影响主流程 */ }
     // 只在有实质内容时才传出 user_profile，避免把空模板（HTML注释+暂无记录）传给 AI
     const userProfile = hasMeaningfulProfileContent(rawProfile) ? rawProfile : '';
 
@@ -1028,6 +1038,7 @@ app.get('/api/clients/:id/context-inject', async (req, res) => {
       return res.json({
         user_profile: userProfile,
         health_wiki: brief,
+        health_plan: healthPlan,
         mode: 'new_user',
         token_estimate: {
           user_profile: estimateTokens(userProfile),
@@ -1045,6 +1056,7 @@ app.get('/api/clients/:id/context-inject', async (req, res) => {
     res.json({
       user_profile: userProfile,
       health_wiki: healthWiki,
+      health_plan: healthPlan,
       mode: usePrefetch ? 'prefetch' : 'full',
       token_estimate: {
         user_profile: estimateTokens(userProfile),
