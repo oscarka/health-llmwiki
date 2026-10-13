@@ -2,7 +2,7 @@
 const puppeteer = require('/Users/cc/mini-health/node_modules/puppeteer-core');
 const fs = require('fs');
 const BASE = process.env.BASE || 'http://localhost:5051';
-const OUT = __dirname + '/shots';
+const OUT = process.env.OUT || (__dirname + '/shots');
 fs.mkdirSync(OUT, { recursive: true });
 const api = async (m, p, b) => { const r = await fetch(BASE + p, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }); let j = null; try { j = await r.json(); } catch (e) {} return { s: r.status, j }; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

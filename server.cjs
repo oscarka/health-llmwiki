@@ -457,10 +457,10 @@ const appendLog = async (clientId, log) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING id, type, title, content, source, synced, created_at AS timestamp`,
       [log.id, clientId, log.type, log.title || null, log.content,
-       log.source || null, false, log.created_at || Date.now()]
+       log.source || null, log.synced === true, log.created_at || Date.now()]
     );
     const r = res.rows[0];
-    created = { ...r, timestamp: new Date(Number(r.timestamp)).toISOString(), synced: false };
+    created = { ...r, timestamp: new Date(Number(r.timestamp)).toISOString(), synced: log.synced === true };
   } catch (err) {}
 
   const fileLog = created || {
@@ -469,7 +469,7 @@ const appendLog = async (clientId, log) => {
     title: log.title || null,
     content: log.content,
     source: log.source || null,
-    synced: false,
+    synced: log.synced === true,
     timestamp: new Date(log.created_at || Date.now()).toISOString()
   };
   const logs = readLogsFromFile(clientId);

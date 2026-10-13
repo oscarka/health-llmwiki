@@ -236,7 +236,7 @@ function registerHealthPlan(app, { db, findClient, appendLog }) {
         const lbl = (c) => `${c.op === 'add' ? '新增' : c.op === 'remove' ? '移除' : '调整'}「${(c.after || c.before).title}」`;
         const content = `【计划事件】${newVer === 1 ? '确认首份健康计划 v1' : `健康计划由 v${curVer} 调整为 v${newVer}`}（来源：${SOURCE_LABEL[plan.source] || plan.source}）。` +
           (plan.changes.length && newVer > 1 ? `变更：${plan.changes.slice(0, 8).map(lbl).join('、')}。` : '') + `原因：${plan.reason}`;
-        await appendLog(id, { id: `log_${now}_${crypto.randomBytes(2).toString('hex')}`, type: 'wechat', title: `计划事件：v${newVer} 生效`, content, created_at: now });
+        await appendLog(id, { id: `log_${now}_${crypto.randomBytes(2).toString('hex')}`, type: 'wechat', title: `计划事件：v${newVer} 生效`, content, created_at: now, synced: true /* 审计留痕，不是临床事实：不进 AI 同步，避免被误写成"干预措施" */ });
       } catch (e) { console.error('[HealthPlan] 写档案事件失败（不影响确认）:', e.message); }
       res.json({ success: true, plan, summary: renderPlanSummary(plan) });
     } catch (err) { res.status(500).json({ error: '确认提案失败: ' + err.message }); }
