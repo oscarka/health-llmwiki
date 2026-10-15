@@ -28,38 +28,16 @@ echo "▶ 本地构建前端（npm run build）..."
 npm run build
 echo "✓ 前端构建完成"
 
-# 3. 读取 .env 中的关键环境变量
-echo ""
-echo "▶ 读取 .env 环境变量..."
-if [ -f .env ]; then
-  ARK_API_KEY=$(grep '^ARK_API_KEY=' .env | cut -d'=' -f2- || true)
-  ARK_MODEL=$(grep '^ARK_MODEL=' .env | cut -d'=' -f2- || true)
-  ARK_BASE_URL=$(grep '^ARK_BASE_URL=' .env | cut -d'=' -f2- || true)
-  GEMINI_API_KEY=$(grep '^GEMINI_API_KEY=' .env | cut -d'=' -f2- || true)
-  SYNC_MODEL=$(grep '^SYNC_MODEL=' .env | cut -d'=' -f2- || true)
-  echo "✓ ARK_API_KEY=${ARK_API_KEY:0:10}..."
-  echo "✓ ARK_MODEL=${ARK_MODEL}"
-  if [ -n "$GEMINI_API_KEY" ]; then
-    echo "✓ GEMINI_API_KEY=${GEMINI_API_KEY:0:10}... (Sync 将使用 Gemini)"
-    echo "✓ SYNC_MODEL=${SYNC_MODEL:-deepseek-v4-flash-ga-260731}"
-  fi
-else
-  echo "⚠ 未找到 .env 文件，将不设置环境变量"
-fi
+# 3. 线上环境变量（ARK_*/SYNC_MODEL/VISION_MODEL）保持不动：本脚本不再读取/打印本地 .env，避免密钥泄露到终端日志。
 
 # 4. 部署到 Cloud Run
 echo ""
 echo "▶ 部署到 Cloud Run..."
 
-# 动态构造 env vars（避免传入空的 GEMINI_API_KEY 导致格式问题）
-ENV_VARS="NODE_ENV=production"
-ENV_VARS="${ENV_VARS},ARK_API_KEY=${ARK_API_KEY:-}"
-ENV_VARS="${ENV_VARS},ARK_MODEL=${ARK_MODEL:-deepseek-v4-flash-ga-260731}"
-ENV_VARS="${ENV_VARS},ARK_BASE_URL=${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
-ENV_VARS="${ENV_VARS},SYNC_MODEL=${SYNC_MODEL:-deepseek-v4-flash-ga-260731}"
-if [ -n "${GEMINI_API_KEY:-}" ]; then
-  ENV_VARS="${ENV_VARS},GEMINI_API_KEY=${GEMINI_API_KEY}"
-fi
+# 环境变量策略：不再用 --set-env-vars（会整体覆盖线上变量，曾导致 VISION_MODEL 丢失）。
+# 线上已有变量(ARK_*/SYNC_MODEL/VISION_MODEL 等)保持不动，只增量设置 NODE_ENV。
+# 要改某个变量请单独执行: gcloud run services update llmwiki --update-env-vars KEY=VAL
+# 部署后可用 GET /api/_meta 核对线上实际配置。
 
 gcloud run deploy "${SERVICE}" \
   --source . \
@@ -69,7 +47,7 @@ gcloud run deploy "${SERVICE}" \
   --min-instances=1 \
   --max-instances=1 \
   --timeout=900 \
-  --set-env-vars="${ENV_VARS}" \
+  --update-env-vars="NODE_ENV=production" \
   --set-secrets="DATABASE_URL=skill-platform-db-url:latest" \
   --quiet
 

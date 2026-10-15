@@ -31,6 +31,11 @@ function normalizeItem(raw, defaultSource) {
   const source = raw.source || defaultSource || 'system';
   if (!SOURCES.includes(source)) return { error: `计划项 ${key} 的 source 必须是：${SOURCES.join('/')}` };
   const item = { key, line: raw.line, title: title.slice(0, 80), detail: String(raw.detail || '').slice(0, 4000), source };
+  if (raw.evidence) item.evidence = String(raw.evidence).slice(0, 200);
+  if (raw.origin && typeof raw.origin === 'object') {
+    const o = raw.origin;
+    item.origin = { kind: String(o.kind || '').slice(0, 30), doc_type: String(o.doc_type || '').slice(0, 30), ref_date: o.ref_date ? String(o.ref_date).slice(0, 10) : null, mode: String(o.mode || '').slice(0, 20) };
+  }
   if (raw.target !== undefined && raw.target !== null) {
     const t = raw.target;
     if (typeof t !== 'object') return { error: `计划项 ${key} 的 target 必须是对象` };
@@ -99,7 +104,8 @@ function renderPlanSummary(active) {
     lines.push(`${LINE_LABEL[ln]}：` + its.map((i) => {
       const tt = targetText(i.target);
       const src = i.source && i.source !== 'system' ? `（${SOURCE_LABEL[i.source]}）` : '';
-      return `${i.title}${tt ? ' ' + tt : ''}${src}`;
+      const dt = i.detail && !String(i.title).includes(String(i.detail).slice(0, 12)) ? `：${String(i.detail).slice(0, 80)}` : '';
+      return `${i.title}${dt}${tt ? ' ' + tt : ''}${src}`;
     }).join('；'));
   }
   return lines.join('\n');
@@ -112,6 +118,7 @@ const rowToPlan = (r) => !r ? null : ({
   proposed_by: r.proposed_by || '', source: r.source || '', base_version: r.base_version,
   created_at: r.created_at ? Number(r.created_at) : null,
   confirmed_at: r.confirmed_at ? Number(r.confirmed_at) : null,
+  meta: r.meta || null,
 });
 
 function registerHealthPlan(app, { db, findClient, appendLog }) {
@@ -122,6 +129,7 @@ function registerHealthPlan(app, { db, findClient, appendLog }) {
         phase_title TEXT, primary_goal TEXT, items JSONB NOT NULL DEFAULT '[]', changes JSONB NOT NULL DEFAULT '[]',
         reason TEXT, proposed_by TEXT, source TEXT, base_version INT, created_at BIGINT, confirmed_at BIGINT)`, []);
       await db.query(`CREATE INDEX IF NOT EXISTS plan_versions_client_idx ON llmwiki.plan_versions (client_id, status)`, []);
+      await db.query(`ALTER TABLE llmwiki.plan_versions ADD COLUMN IF NOT EXISTS meta JSONB`, []);
     } catch (e) { console.error('[HealthPlan] ensureTables failed:', e.message); }
   };
   const ready = ensureTables();
@@ -172,38 +180,43 @@ function registerHealthPlan(app, { db, findClient, appendLog }) {
     } catch (err) { res.status(500).json({ error: '读取版本失败: ' + err.message }); }
   });
 
+  /** 创建提案（草稿）。返回 { code, body }，供路由和"材料→计划"模块共用 */
+  const createProposal = async (id, b) => {
+    const source = b.source || 'system';
+    if (!SOURCES.includes(source)) return { code: 400, body: { error: `source 必须是：${SOURCES.join('/')}` } };
+    const reason = String(b.reason || '').trim();
+    if (!reason) return { code: 400, body: { error: '必须说明 reason（为什么提出这次计划/调整）' } };
+    const rawItems = Array.isArray(b.items) ? b.items : [];
+    const patchItems = [];
+    for (const r of rawItems) {
+      const n = normalizeItem(r, source);
+      if (n.error) return { code: 400, body: { error: n.error } };
+      patchItems.push(n.item);
+    }
+    const removeKeys = Array.isArray(b.remove) ? b.remove.map(String) : [];
+    const active = await getActive(id);
+    if (!active && patchItems.length === 0) return { code: 400, body: { error: '首次计划必须提供 items' } };
+    const base = active ? active.items : [];
+    const { items, changes } = applyPatch(base, patchItems, removeKeys);
+    const phase_title = b.phase_title !== undefined ? String(b.phase_title).slice(0, 80) : (active ? active.phase_title : '');
+    const primary_goal = b.primary_goal !== undefined ? String(b.primary_goal).slice(0, 200) : (active ? active.primary_goal : '');
+    const metaChanged = active && (phase_title !== active.phase_title || primary_goal !== active.primary_goal);
+    if (changes.length === 0 && !metaChanged && active) return { code: 400, body: { error: '提案与当前生效计划没有任何差别' } };
+    const pid = uid('pv');
+    await db.query(`INSERT INTO llmwiki.plan_versions (id, client_id, version, status, phase_title, primary_goal, items, changes, reason, proposed_by, source, base_version, created_at, meta)
+      VALUES ($1,$2,NULL,'draft',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [pid, id, phase_title, primary_goal, JSON.stringify(items), JSON.stringify(changes), reason, String(b.proposed_by || 'system').slice(0, 30), source, active ? active.version : 0, Date.now(), b.meta ? JSON.stringify(b.meta) : null]);
+    const row = (await db.query(`SELECT * FROM llmwiki.plan_versions WHERE id=$1`, [pid])).rows[0];
+    return { code: 201, body: rowToPlan(row) };
+  };
+
   // 4. 创建提案（草稿）：patch=在生效计划上增改删；首次计划用 items 全量
   app.post('/api/clients/:id/plans/proposals', async (req, res) => {
     try {
       if (!await needClient(req, res)) return;
-      const id = req.params.id;
-      const b = req.body || {};
-      const source = b.source || 'system';
-      if (!SOURCES.includes(source)) return res.status(400).json({ error: `source 必须是：${SOURCES.join('/')}` });
-      const reason = String(b.reason || '').trim();
-      if (!reason) return res.status(400).json({ error: '必须说明 reason（为什么提出这次计划/调整）' });
-      const rawItems = Array.isArray(b.items) ? b.items : [];
-      const patchItems = [];
-      for (const r of rawItems) {
-        const n = normalizeItem(r, source);
-        if (n.error) return res.status(400).json({ error: n.error });
-        patchItems.push(n.item);
-      }
-      const removeKeys = Array.isArray(b.remove) ? b.remove.map(String) : [];
-      const active = await getActive(id);
-      if (!active && patchItems.length === 0) return res.status(400).json({ error: '首次计划必须提供 items' });
-      const base = active ? active.items : [];
-      const { items, changes } = applyPatch(base, patchItems, removeKeys);
-      const phase_title = b.phase_title !== undefined ? String(b.phase_title).slice(0, 80) : (active ? active.phase_title : '');
-      const primary_goal = b.primary_goal !== undefined ? String(b.primary_goal).slice(0, 200) : (active ? active.primary_goal : '');
-      const metaChanged = active && (phase_title !== active.phase_title || primary_goal !== active.primary_goal);
-      if (changes.length === 0 && !metaChanged && active) return res.status(400).json({ error: '提案与当前生效计划没有任何差别' });
-      const pid = uid('pv');
-      await db.query(`INSERT INTO llmwiki.plan_versions (id, client_id, version, status, phase_title, primary_goal, items, changes, reason, proposed_by, source, base_version, created_at)
-        VALUES ($1,$2,NULL,'draft',$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [pid, id, phase_title, primary_goal, JSON.stringify(items), JSON.stringify(changes), reason, String(b.proposed_by || 'system').slice(0, 30), source, active ? active.version : 0, Date.now()]);
-      const row = (await db.query(`SELECT * FROM llmwiki.plan_versions WHERE id=$1`, [pid])).rows[0];
-      res.status(201).json(rowToPlan(row));
+      const b = { ...(req.body || {}) }; delete b.meta; // 外部调用不能伪造系统 meta
+      const r = await createProposal(req.params.id, b);
+      res.status(r.code).json(r.body);
     } catch (err) { res.status(500).json({ error: '创建提案失败: ' + err.message }); }
   });
 
@@ -253,7 +266,13 @@ function registerHealthPlan(app, { db, findClient, appendLog }) {
     } catch (err) { res.status(500).json({ error: '拒绝提案失败: ' + err.message }); }
   });
 
-  return { getActive: async (id) => { await ready; return getActive(id); }, renderPlanSummary };
+  return {
+    getActive: async (id) => { await ready; return getActive(id); },
+    renderPlanSummary,
+    createProposal: async (id, b) => { await ready; return createProposal(id, b); },
+    /** 作废某客户此前由"材料→计划"产生的待确认草稿（新的上传会取代旧的草稿，避免堆积） */
+    expireMaterialDrafts: async (id) => { await ready; await db.query(`UPDATE llmwiki.plan_versions SET status='expired' WHERE client_id=$1 AND status='draft' AND meta->>'kind'='material'`, [id]); },
+  };
 }
 
 module.exports = { registerHealthPlan, normalizeItem, applyPatch, renderPlanSummary, LINES, LINE_LABEL, SOURCE_LABEL, SOURCES };

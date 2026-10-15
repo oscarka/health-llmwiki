@@ -17,6 +17,9 @@ app.use(express.json({ limit: '10mb' }));
 // ── 通用 Wiki 记忆库 API（Phase 3 — 多 Domain 隔离，不影响现有健康接口）──
 const genericWikiRouter = require('./generic_wiki/apiRoutes.cjs');
 const { registerHealthPlan } = require('./health_plan/healthPlan.cjs');
+const { registerMaterialPlan } = require('./health_plan/materialRoutes.cjs');
+const { registerCheckin } = require('./health_plan/checkin.cjs');
+const { registerNutrition } = require('./health_plan/nutrition.cjs');
 app.use('/api/generic-wiki', genericWikiRouter);
 
 // ──────────────────── 前端静态文件 ────────────────────
@@ -381,6 +384,9 @@ const deleteClientData = async (id) => {
   } catch (err) {}
   try {
     await db.query('DELETE FROM llmwiki.plan_versions WHERE client_id=$1', [id]);
+  } catch (err) {}
+  try {
+    await db.query('DELETE FROM llmwiki.plan_nutrition WHERE client_id=$1', [id]);
   } catch (err) {}
   try {
     const all = readPermsFile();
@@ -926,7 +932,30 @@ app.delete('/api/clients/:id', async (req, res) => {
 });
 
 // 4a. 健康计划板块（独立于档案 Wiki：版本化、确认才生效）
+// 计划接口访问控制（预留；默认关闭，因为 LLMWiki 目前没有登录体系）。
+// 开启方式：环境变量 PLAN_AUTH_REQUIRED=1 且设置 PLAN_API_TOKEN，请求须带 Authorization: Bearer <token>。
+// 以后接入真正的用户登录时，只需要替换下面的 verifyPlanAccess（它能拿到 clientId，可校验"这个用户是否有权访问该客户"）。
+function verifyPlanAccess(req) {
+  const token = process.env.PLAN_API_TOKEN;
+  if (!token) return false; // 要求鉴权却没配置令牌：一律拒绝，避免误以为已保护
+  const h = String(req.headers.authorization || '');
+  return h === `Bearer ${token}`;
+}
+app.use('/api/clients/:id/plans', (req, res, next) => {
+  if (process.env.PLAN_AUTH_REQUIRED !== '1') return next();
+  if (req.method === 'OPTIONS' || verifyPlanAccess(req)) return next();
+  return res.status(401).json({ error: '未授权：访问健康计划需要登录凭证' });
+});
 const planApi = registerHealthPlan(app, { db, findClient, appendLog });
+registerMaterialPlan(app, { findClient, planApi });
+// 打卡清单：AI 按生效计划+用户资料生成，每项关联医嘱（见 health_plan/checkin.cjs）。名字/电话不进提示词。
+const planProfileText = async (id) => {
+  const c = await findClient(id); if (!c) return '';
+  let hist = ''; try { const w = await readWikiPages(id); hist = String(w['medical_history.md'] || '').replace(/<!--[\s\S]*?-->/g, '').slice(0, 1200); } catch (e) { /* 资料读取失败只影响基线，不影响主流程 */ }
+  return [`年龄：${c.age || '未填写'}`, `性别：${c.gender || '未填写'}`, `过敏：${c.allergies || '未填写'}`, hist ? `病史摘要：${hist}` : ''].filter(Boolean).join('\n');
+};
+registerCheckin(app, { findClient, planApi, getProfileText: planProfileText });
+registerNutrition(app, { db, findClient, planApi, getProfileText: planProfileText });
 
 // 4a'. 运行时自检（只读）：线上版本与关键配置是否到位。只返回"是否已设置"，不返回任何密钥值。
 app.get('/api/_meta', async (req, res) => {
@@ -937,7 +966,7 @@ app.get('/api/_meta', async (req, res) => {
     node_env: process.env.NODE_ENV || '',
     models: { chat: process.env.ARK_MODEL || '', sync: process.env.SYNC_MODEL || '', vision: process.env.VISION_MODEL || '' },
     secrets_present: { ARK_API_KEY: has('ARK_API_KEY'), DATABASE_URL: has('DATABASE_URL'), GEMINI_API_KEY: has('GEMINI_API_KEY') },
-    features: { health_plan: true },
+    features: { health_plan: true, material_plan: true },
   };
   try { await db.query('SELECT 1 FROM llmwiki.plan_versions LIMIT 1'); meta.plan_table = true; } catch (e) { meta.plan_table = false; }
   try { fs.accessSync(DATA_DIR, fs.constants.W_OK); meta.data_dir_writable = true; } catch (e) { meta.data_dir_writable = false; }
@@ -1031,6 +1060,14 @@ app.get('/api/clients/:id/wiki', async (req, res) => {
     console.error('[GET /clients/:id/wiki]', err);
     res.status(500).json({ error: '获取 Wiki 失败: ' + err.message });
   }
+});
+
+// 5a'. Agent 专用：只取生效计划的一页纸摘要（轻量，无缓存；确认计划后对话立刻能读到）
+app.get('/api/clients/:id/plan-summary', async (req, res) => {
+  try {
+    const summary = planApi.renderPlanSummary(await planApi.getActive(req.params.id)) || '';
+    res.json({ summary });
+  } catch (err) { res.json({ summary: '' }); }
 });
 
 // 5b. Agent 专用：context-inject
