@@ -23,6 +23,8 @@ function registerMaterialPlan(app, { findClient, planApi }) {
   const jobs = new Map(), extractions = new Map(), history = new Map();
   const cfg = () => ({ key: process.env.ARK_API_KEY, url: process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' });
   const llm = (s, u, t) => mp.makeArkLlm({ ...cfg(), model: process.env.ARK_MODEL || process.env.SYNC_MODEL })(s, u, t);
+  // 独立复核员：可用不同的模型（REVIEW_MODEL），不配则用生成模型，但始终是单独的一次调用、单独的提示词
+  const reviewLlm = (s, u, t) => mp.makeArkLlm({ ...cfg(), model: process.env.REVIEW_MODEL || process.env.ARK_MODEL || process.env.SYNC_MODEL })(s, u, t);
   // 视觉模型偶发排队：同样输出 27 token 的调用有时 3 秒、有时 108 秒（线上日志实测）。等不到 40 秒就并行再发一个，谁先成功用谁；第一个直接失败也立即补发。
   const hedge = (fn, delayMs = 40000) => (p, b, t) => new Promise((resolve, reject) => {
     let done = false, n = 0, fails = 0; let tm = null;
@@ -94,7 +96,7 @@ function registerMaterialPlan(app, { findClient, planApi }) {
         stage('正在生成计划并做安全校验（约 30–90 秒）');
         // 删除决定里的下标指向"原始提取"，先应用到 extraction 再生成（confirmExtraction 内部按同一顺序处理）
         const conf = mp.confirmExtraction(e0, decisions);
-        const plan = await mp.generateMaterialPlan(conf, ex.asOf || today(), llm);
+        const plan = await mp.generateMaterialPlan(conf, ex.asOf || today(), llm, { reviewLlm });
         if (plan.mode === 'blocked') return { blocked: true, mode: plan.mode, questions: plan.questions, not_done: plan.not_done, disclaimer: plan.disclaimer, meta: plan.meta };
         const prop = mp.planToWikiProposal(plan, conf.extraction);
         const active = await planApi.getActive(clientId);
