@@ -101,12 +101,13 @@ function registerNutrition(app, { db, findClient, planApi, getProfileText }) {
   const latest = async (id) => (await db.query(`SELECT * FROM llmwiki.plan_nutrition WHERE client_id=$1 ORDER BY version DESC LIMIT 1`, [id])).rows[0] || null;
   const shape = (r) => r && ({ id: r.id, version: r.version, plan_id: r.plan_id, plan_version: r.plan_version, feedback: r.feedback, created_at: Number(r.created_at), ...r.content });
   const running = new Set();
+  const runningJob = new Map(); // clientId -> job（进行中的生成任务，供前端切页后恢复轮询）
 
   // 硬约束清单：来自生效计划里的饮食/其它限制（原文），不由程序用关键词判断
   const hardConstraints = (active) => (active ? active.items.filter((i) => i.line !== 'medication' && i.line !== 'monitor').map((i) => clip(i.evidence || i.title, 80)) : []);
 
   app.get('/api/clients/:id/plans/nutrition', async (req, res) => {
-    try { await ready; if (!await findClient(req.params.id)) return res.status(404).json({ error: '客户不存在' }); res.json({ nutrition: shape(await latest(req.params.id)) }); }
+    try { await ready; if (!await findClient(req.params.id)) return res.status(404).json({ error: '客户不存在' }); const rj = runningJob.get(req.params.id); res.json({ nutrition: shape(await latest(req.params.id)), running: rj ? { jobId: rj.id, elapsed_s: Math.round((Date.now() - rj.createdAt) / 1000) } : null }); }
     catch (e) { res.status(500).json({ error: '读取饮食方案失败: ' + e.message }); }
   });
 
@@ -123,10 +124,10 @@ function registerNutrition(app, { db, findClient, planApi, getProfileText }) {
       const prev = await latest(id);
       if (prev && !feedback) return res.status(409).json({ error: '已有饮食方案；如需调整请写下修改意见', nutrition: shape(prev) });
       if (!prev && feedback) return res.status(400).json({ error: '还没有第一版方案' });
-      if (running.has(id)) return res.status(429).json({ error: '正在生成中，请稍候' });
+      if (running.has(id)) { const rj = runningJob.get(id); return res.status(202).json({ jobId: rj && rj.id, resumed: true }); }
       if (prev && (Date.now() - Number(prev.created_at)) < 20 * 1000) return res.status(429).json({ error: '操作太频繁，请稍后再试' });
       running.add(id);
-      const job = { id: rid(), clientId: id, status: 'running', createdAt: Date.now() }; jobs.set(job.id, job);
+      const job = { id: rid(), clientId: id, status: 'running', createdAt: Date.now() }; jobs.set(job.id, job); runningJob.set(id, job);
       res.status(202).json({ jobId: job.id });
       (async () => {
         try {
@@ -158,7 +159,7 @@ function registerNutrition(app, { db, findClient, planApi, getProfileText }) {
             [rid(), id, version, active ? active.id : null, active ? active.version : null, JSON.stringify(content), feedback || null, Date.now()]);
           job.nutrition = shape(await latest(id)); job.status = 'done';
         } catch (e) { console.error('[Nutrition] generate failed:', e && e.stack || e); job.status = 'error'; job.error = '生成饮食方案失败: ' + (e && e.message); }
-        finally { running.delete(id); }
+        finally { running.delete(id); runningJob.delete(id); }
       })();
     } catch (e) { running.delete(id); console.error('[Nutrition] generate failed:', e && e.stack || e); if (!res.headersSent) res.status(500).json({ error: '生成饮食方案失败: ' + e.message }); }
   });
