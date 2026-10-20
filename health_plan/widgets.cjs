@@ -236,7 +236,7 @@ function registerWidgets(app, { db, findClient, llm }) {
 
   // 拆开评估：聊天里的 AI 只负责“记下新情况”；是否需要做新小工具，由这个独立的小判断来定（登记成 ai_chat 需求，不上首页，出结果后 AI 下次聊天告知）
   const EVAL_SYSTEM = `你是健康产品的“办事需求判断员”。输入是用户在聊天里说的一句新情况，以及平台已有小工具的名字。
-默认倾向：只要这句话涉及一件【有现实办事环节】的事——出行/出差/坐飞机、住院/手术前后、复诊/挂号/就医流程、康复用品/辅具选购、搬家、陪护安排、办手续——就判 need=true（这类事都能做成固定程序：算数量/时间、清单、选购对比、分步指引），除非【已有工具名】里已经有明显同一件事的工具。
+默认倾向：只要这句话涉及一件【有现实办事环节】的事——出行/出差/坐飞机、住院/手术前后、复诊/挂号/就医流程、康复用品/辅具选购、搬家、陪护安排、办手续（【为家人办的事也算】，如"我妈刚做完手术马上出院，回家要买什么"）——就判 need=true（这类事都能做成固定程序：算数量/时间、清单、选购对比、分步指引），除非【已有工具名】里已经有明显同一件事的工具。
 只有明确属于下面这些才判 need=false：饮食/吃什么、服药提醒、症状描述、心情、运动、打卡数据、闲聊、单纯的医学知识咨询。
 只输出 JSON：{"need":true|false,"name":"工具名(≤14字，不含病名)","why":"用户要解决什么、需要算什么或列什么(≤80字)"}`;
   app.post('/api/clients/:id/widgets/evaluate', async (req, res) => {
@@ -458,7 +458,7 @@ function registerWidgets(app, { db, findClient, llm }) {
       const ids = (Array.isArray(req.body && req.body.ids) ? req.body.ids : []).filter((x) => typeof x === 'string').slice(0, 100);
       const r = await db.query(`DELETE FROM llmwiki.widget_tool WHERE id = ANY($1) AND (name LIKE 'test_sandbox%' OR scenario_key LIKE 'test\\_%' OR id IN (SELECT tool_id FROM llmwiki.widget_request WHERE source='test_sandbox')
         OR (id IN (SELECT tool_id FROM llmwiki.widget_request WHERE client_id LIKE '%test_sandbox%') AND id NOT IN (SELECT tool_id FROM llmwiki.widget_request WHERE client_id NOT LIKE '%test_sandbox%' AND tool_id <> ''))
-        OR (status='pending_review' AND id NOT IN (SELECT tool_id FROM llmwiki.widget_request WHERE tool_id <> ''))) RETURNING id`, [ids]);
+        OR (status IN ('pending_review','auto_rejected') AND id NOT IN (SELECT tool_id FROM llmwiki.widget_request WHERE tool_id <> ''))) RETURNING id`, [ids]);
       res.json({ deleted: r.rowCount });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
