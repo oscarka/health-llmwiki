@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小工具审核台</title>
+<style>
+:root{--g:#0f766e;--bg:#f4f7f6;--line:#e2e8e6;--mut:#64748b}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:#0f172a}
+header{background:linear-gradient(135deg,#0f766e,#14b8a6);color:#fff;padding:18px 24px}
+header h1{margin:0;font-size:20px}header p{margin:4px 0 0;font-size:13px;opacity:.9}
+main{max-width:980px;margin:0 auto;padding:18px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+input[type=password],input[type=text]{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px}
+button{cursor:pointer;border:0;border-radius:8px;padding:8px 14px;font-size:14px;background:#e2e8f0}
+button.pri{background:var(--g);color:#fff}button.bad{background:#fee2e2;color:#b91c1c}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border-radius:0;background:#fff}.seg button.on{background:var(--g);color:#fff}
+.tabs button.on{background:var(--g);color:#fff}
+.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:#e2e8f0;margin-right:6px}
+.tag.ok{background:#dcfce7;color:#166534}.tag.warn{background:#fef3c7;color:#92400e}.tag.no{background:#fee2e2;color:#991b1b}
+h3{margin:0 0 6px;font-size:16px}.mut{color:var(--mut);font-size:13px}
+.sec{margin-top:10px;padding:10px;background:#f8fafc;border-radius:10px;font-size:13px;line-height:1.6}
+.sec b{color:var(--g)}ul{margin:4px 0;padding-left:20px}
+pre{white-space:pre-wrap;margin:4px 0;font-size:12px}
+</style></head><body>
+<header><h1>🩺 小工具审核台</h1><p>AI 生成的专属小工具，通过审核才会出现在用户首页</p></header>
+<main>
+<div class="card" id="auth"><div class="row"><b>审核口令</b><input id="tok" type="password" placeholder="输入口令" style="width:220px"><button class="pri" id="tokBtn">进入</button><span class="mut" id="tokMsg"></span></div></div>
+<div class="card" id="settings" style="display:none">
+ <div class="row"><b>审核模式</b>
+  <div class="seg" id="modeSeg"><button data-v="manual">医生审核</button><button data-v="auto">完全自动</button></div>
+  <span class="mut" id="modeNote"></span></div>
+ <div class="row" style="margin-top:10px"><b>后台自动生成</b>
+  <div class="seg" id="genSeg"><button data-v="on">开</button><button data-v="off">关</button></div></div>
+</div>
+<div class="card tabs row" id="tabs" style="display:none">
+ <button data-s="pending_review" class="on">待审核</button><button data-s="approved">已上架</button><button data-s="rejected">医生驳回</button><button data-s="auto_rejected">自动拦截</button>
+</div>
+<div id="list"></div>
+</main>
+<script>
+const $=s=>document.querySelector(s);let TOKEN=localStorage.getItem('wrt')||'',STATUS='pending_review';
+$('#tok').value=TOKEN;
+const api=async(p,o={})=>{const r=await fetch(p,{...o,headers:{'Content-Type':'application/json','x-review-token':TOKEN}});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const NAMES={pending_review:'待审核',approved:'已上架',rejected:'医生驳回',auto_rejected:'自动拦截'};
+async function loadSettings(){const s=await api('/api/widgets/admin/settings');
+ document.querySelectorAll('#modeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===s.review_mode));
+ document.querySelectorAll('#genSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===s.gen_enabled));
+ $('#modeNote').textContent=s.review_mode==='auto'?'新工具自动检查+AI复核通过后直接上架（含待确认出处的仍转医生）':'新工具必须医生点“通过”才上架';}
+function render(t){
+ const sp=t.spec,j=(t.review&&t.review.judge)||{},l=(t.review&&t.review.lint)||{hard:[],human:[]},d=(t.review&&t.review.decision)||{};
+ const inputs=(sp.inputs||[]).map(i=>`${esc(i.label)}(${esc(i.type)}${i.options&&i.options.length?': '+esc(i.options.join('/')):''})`).join('、')||'无';
+ const content=(sp.content||[]).map(c=>`<b>${esc(c.title)}</b><ul>${(c.items||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`).join('');
+ const cons=(sp.constants||[]).map(c=>`<li>${esc(c.value)} —— 出处：${esc(c.source)}</li>`).join('');
+ const hist=((t.review&&t.review.history)||[]).map(h=>`${esc(h.by)} ${h.action==='approve'?'通过':'驳回'} ${esc(h.note||'')}`).join('；');
+ const acts=t.status==='pending_review'?`<div class="row" style="margin-top:10px"><input type="text" class="rv" placeholder="审核人" style="width:110px" value="${esc(localStorage.getItem('rv')||'')}"><input type="text" class="nt" placeholder="备注（可选）" style="width:260px"><button class="pri" data-a="approve">通过上架</button><button class="bad" data-a="reject">驳回</button></div>`:'';
+ return `<div class="card" data-id="${t.id}"><h3>${esc(t.name)} <span class="tag">${esc(t.kind)}</span><span class="tag ${t.status==='approved'?'ok':t.status==='pending_review'?'warn':'no'}">${NAMES[t.status]||t.status}</span>${t.approved_mode?`<span class="tag ok">${t.approved_mode==='auto'?'AI自动上架':'医生:'+esc(t.approved_by)}</span>`:''}</h3>
+ <div class="mut">病种：${esc(t.disease_label)||'—'} · 需求人数：${t.demand} · ${new Date(t.created_at).toLocaleString()}</div>
+ <div class="sec"><b>何时用：</b>${esc(sp.trigger||'')}<br><b>用户填写：</b>${esc(inputs)}<br><b>输出：</b>${esc(sp.output||'')}<br>${sp.program?`<b>算法说明：</b>${esc(sp.program)}<br>`:''}${t.sample_result?`<b>示例运行（默认输入）：</b><pre>${esc(JSON.stringify(t.sample_result,null,1))}</pre>`:''}${content}${cons?`<b>用到的数值/常数：</b><ul>${cons}</ul>`:''}<b>免责声明：</b>${esc(sp.disclaimer)}</div>
+ <div class="sec"><b>自动检查：</b>${(l.hard||[]).length?`<span class="tag no">未过</span>${esc(l.hard.join('；'))}`:'<span class="tag ok">通过</span>'} ${(l.human||[]).length?`<br><b>需人工确认：</b><ul>${l.human.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}
+ <br><b>AI 复核：</b><span class="tag ${j.verdict==='pass'?'ok':'no'}">${esc(j.verdict)}</span>范围：${esc(j.scope)} ${esc((j.reasons||[]).join('；'))}
+ <br><b>系统决定：</b>${esc(d.reason||'')}${hist?`<br><b>审核记录：</b>${hist}`:''}</div>${acts}</div>`;}
+async function loadList(){const r=await api('/api/widgets/admin/tools?status='+STATUS);
+ $('#list').innerHTML=r.tools.length?r.tools.map(render).join(''):`<div class="card mut" id="empty">暂无「${NAMES[STATUS]}」的工具</div>`;}
+async function enter(){TOKEN=$('#tok').value.trim();try{await loadSettings();localStorage.setItem('wrt',TOKEN);$('#settings').style.display='';$('#tabs').style.display='';$('#tokMsg').textContent='✅ 已验证';await loadList();}catch(e){$('#tokMsg').textContent='❌ '+e.message}}
+$('#tokBtn').onclick=enter;if(TOKEN)enter();
+document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=async()=>{await api('/api/widgets/admin/settings',{method:'PUT',body:JSON.stringify({review_mode:b.dataset.v})});loadSettings()});
+document.querySelectorAll('#genSeg button').forEach(b=>b.onclick=async()=>{await api('/api/widgets/admin/settings',{method:'PUT',body:JSON.stringify({gen_enabled:b.dataset.v})});loadSettings()});
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{STATUS=b.dataset.s;document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));loadList()});
+$('#list').onclick=async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const c=b.closest('.card');const rv=c.querySelector('.rv').value.trim()||'医生';localStorage.setItem('rv',rv);
+ try{await api(`/api/widgets/admin/tools/${c.dataset.id}/${b.dataset.a}`,{method:'POST',body:JSON.stringify({reviewer:rv,note:c.querySelector('.nt').value})});await loadList()}catch(err){alert(err.message)}};
+</script></body></html>

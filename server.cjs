@@ -382,8 +382,10 @@ const savePermissions = async (id, patch) => {
 ensurePermsTable();
 
 let situationApi = null;
+let widgetsApi = null;
 const deleteClientData = async (id) => {
   try { if (situationApi) await situationApi.clear(id); } catch (err) {}
+  try { if (widgetsApi) await widgetsApi.clear(id); } catch (err) {}
   try {
     await db.query('DELETE FROM llmwiki.client_service_permissions WHERE client_id=$1', [id]);
   } catch (err) {}
@@ -984,6 +986,20 @@ registerNutrition(app, { db, findClient, planApi, getProfileText: planProfileTex
 // 情景档案：建档时的情景问答原样存档（见 health_plan/situation.cjs），纯新增。
 const { registerSituation } = require('./health_plan/situation.cjs');
 situationApi = registerSituation(app, { db, findClient });
+// 专属小工具：缺口需求 → 后台生成 → 审核(医生/自动，可切换) → 上架（见 health_plan/widgets.cjs），纯新增。
+const { registerWidgets } = require('./health_plan/widgets.cjs');
+widgetsApi = registerWidgets(app, {
+  db, findClient,
+  llm: async (system, user, opt = {}) => {
+    const r = await getOpenAI().chat.completions.create({
+      model: process.env.SYNC_MODEL || process.env.ARK_MODEL || 'deepseek-v4-flash-ga-260731',
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      max_tokens: opt.max_tokens || 3000, temperature: opt.temperature == null ? 0.3 : opt.temperature,
+      thinking: { type: 'disabled' },
+    });
+    return r.choices[0].message.content || '';
+  },
+});
 
 // 4a'. 运行时自检（只读）：线上版本与关键配置是否到位。只返回"是否已设置"，不返回任何密钥值。
 app.get('/api/_meta', async (req, res) => {
