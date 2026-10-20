@@ -458,7 +458,7 @@ function registerWidgets(app, { db, findClient, llm }) {
       const ids = (Array.isArray(req.body && req.body.ids) ? req.body.ids : []).filter((x) => typeof x === 'string').slice(0, 100);
       const r = await db.query(`DELETE FROM llmwiki.widget_tool WHERE id = ANY($1) AND (name LIKE 'test_sandbox%' OR scenario_key LIKE 'test\\_%' OR id IN (SELECT tool_id FROM llmwiki.widget_request WHERE source='test_sandbox')
         OR (id IN (SELECT tool_id FROM llmwiki.widget_request WHERE client_id LIKE '%test_sandbox%') AND id NOT IN (SELECT tool_id FROM llmwiki.widget_request WHERE client_id NOT LIKE '%test_sandbox%' AND tool_id <> ''))
-        OR (status IN ('pending_review','auto_rejected') AND id NOT IN (SELECT tool_id FROM llmwiki.widget_request WHERE tool_id <> ''))) RETURNING id`, [ids]);
+        OR (id NOT IN (SELECT tool_id FROM llmwiki.widget_request WHERE tool_id <> ''))) RETURNING id`, [ids]);
       res.json({ deleted: r.rowCount });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
