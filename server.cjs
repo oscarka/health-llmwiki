@@ -954,11 +954,28 @@ app.use('/api/clients/:id/plans', (req, res, next) => {
 const planApi = registerHealthPlan(app, { db, findClient, appendLog });
 registerMaterialPlan(app, { findClient, planApi });
 // 打卡清单：AI 按生效计划+用户资料生成，每项关联医嘱（见 health_plan/checkin.cjs）。名字/电话不进提示词。
+// 情景摘要灰度开关 SITUATION_IN_PROFILE:空=关;1 或 *=全部;否则逗号分隔的客户ID(末尾带 * 表示前缀,如 mini_199*)。未命中时画像与原来逐字一致。
+const situationInProfile = (id) => {
+  const v = String(process.env.SITUATION_IN_PROFILE || '').trim();
+  if (!v) return false;
+  if (v === '1' || v === '*') return true;
+  return v.split(',').map((s) => s.trim()).filter(Boolean).some((p) => (p.endsWith('*') ? String(id).startsWith(p.slice(0, -1)) : p === id));
+};
 const planProfileText = async (id) => {
   const c = await findClient(id); if (!c) return '';
-  let hist = ''; try { const w = await readWikiPages(id); hist = String(w['medical_history.md'] || '').replace(/<!--[\s\S]*?-->/g, '').slice(0, 1200); } catch (e) { /* 资料读取失败只影响基线，不影响主流程 */ }
-  return [`年龄：${c.age || '未填写'}`, `性别：${c.gender || '未填写'}`, `过敏：${c.allergies || '未填写'}`, hist ? `病史摘要：${hist}` : ''].filter(Boolean).join('\n');
+  let sit = '';
+  if (situationInProfile(id)) {
+    try { const r = await db.query('SELECT summary FROM llmwiki.client_situation WHERE client_id=$1 ORDER BY created_at DESC LIMIT 1', [id]); sit = String((r.rows[0] && r.rows[0].summary) || '').slice(0, 400); } catch (e) { /* 读不到只影响情景摘要 */ }
+  }
+  let hist = ''; try { const w = await readWikiPages(id); hist = String(w['medical_history.md'] || '').replace(/<!--[\s\S]*?-->/g, '').slice(0, sit ? 1000 : 1200); } catch (e) { /* 资料读取失败只影响基线，不影响主流程 */ }
+  return [`年龄：${c.age || '未填写'}`, `性别：${c.gender || '未填写'}`, `过敏：${c.allergies || '未填写'}`, sit ? `情景摘要（用户自述，仅供参考，不是医嘱）：${sit}` : '', hist ? `病史摘要：${hist}` : ''].filter(Boolean).join('\n');
 };
+app.get('/api/clients/:id/plans/profile-preview', async (req, res) => {
+  try {
+    if (!await findClient(req.params.id)) return res.status(404).json({ error: '客户不存在' });
+    res.json({ situation_in_profile: situationInProfile(req.params.id), profile: await planProfileText(req.params.id) });
+  } catch (e) { res.status(500).json({ error: '读取画像失败: ' + e.message }); }
+});
 const checkinApi = registerCheckin(app, { findClient, planApi, getProfileText: planProfileText });
 registerValidity(app, { db, findClient, planApi, appendLog, invalidateCheckin: (id) => checkinApi && checkinApi.invalidate && checkinApi.invalidate(id) });
 const { registerCheckinLog } = require('./health_plan/checkinLog.cjs');
