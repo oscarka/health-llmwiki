@@ -33,7 +33,8 @@ const EXEC_ADDENDUM = `
 2. 固定写死的医学常数一律把 source 写成 \`pending_review\`（交给人工审核）或 \`医嘱原句\`；**不得自拟 URL**。
 3. 输出里的 program_code 必须是纯 JS 函数 main(inputs)，不要使用 this / require / process / eval / 网络；你要自己确认默认输入下能跑通，key 用中文。
 4. 若【已有生成工具】里已有能解决这件事的，直接输出 {"reuse":"<那个工具的 id>"}，不要重复做。
-5. 只输出 JSON。`;
+5. 自动检查最常卡住的两点，务必做到：①「分步图文」「清单」类必须在 content 字段里直接写出用户能读的完整条目（至少 3 条，如 [{"title":"...","items":["...","...","..."]}]），不能只在 program 描述里讲；②program_code 返回对象里的所有字段名（key，含嵌套）都必须是中文，不能出现 title/items/result 这类英文名。
+6. 只输出 JSON。`;
 
 const JUDGE_SYSTEM = `你是医疗健康产品的独立复核员。依据下面的“小工具规范”复核一个 AI 起草的小工具，只输出 JSON。
 ${SKILL}
@@ -140,6 +141,8 @@ function registerWidgets(app, { db, findClient, llm }) {
       status TEXT NOT NULL DEFAULT 'queued', tool_id TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', attempts INT NOT NULL DEFAULT 0,
       created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL);
     CREATE INDEX IF NOT EXISTS widget_request_client ON llmwiki.widget_request (client_id);
+    ALTER TABLE llmwiki.widget_request ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE llmwiki.widget_request ADD COLUMN IF NOT EXISTS notified BOOLEAN NOT NULL DEFAULT TRUE;
     CREATE TABLE IF NOT EXISTS llmwiki.widget_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL);`, [])
     .catch((e) => console.error('[Widgets] ensureTables failed:', e.message));
 
@@ -184,10 +187,10 @@ function registerWidgets(app, { db, findClient, llm }) {
     const checksOk = !lint.hard.length && judge.verdict === 'pass' && judge.scope === '办事';
     let status; let reason;
     if (!checksOk) { status = 'auto_rejected'; reason = lint.hard.length ? '自动检查没过' : `AI 复核没过(${judge.scope})`; }
-    else if (mode === 'auto' && !lint.human.length) { status = 'approved'; reason = '审核模式=自动：自动检查与AI复核全部通过，且没有待人工确认的出处'; }
-    else { status = 'pending_review'; reason = mode === 'auto' ? '虽为自动模式，但有待人工确认的出处，转人工' : '审核模式=人工：等医生审核'; }
+    else if (mode === 'auto' && !lint.human.length && !ctx.isTest) { status = 'approved'; reason = '审核模式=自动：自动检查与AI复核全部通过，且没有待人工确认的出处'; }
+    else { status = 'pending_review'; reason = ctx.isTest && mode === 'auto' && !lint.human.length ? '测试隔离：测试账号生成的工具即使自动模式也不自动上架（正常用户会自动上架）' : (mode === 'auto' ? '虽为自动模式，但有待人工确认的出处，转人工' : '审核模式=人工：等医生审核'); }
     const id = uid('wt');
-    const review = { lint, judge, decision: { mode, status, reason, at: Date.now() }, history: [] };
+    const review = { lint, judge, decision: { mode, status, reason, at: Date.now(), would_auto: checksOk && !lint.human.length }, history: [] };
     await db.query(`INSERT INTO llmwiki.widget_tool (id,name,kind,scenario_key,disease_label,spec,status,review,approved_by,approved_mode,created_at,updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`,
     [id, clip(spec.name, 60), spec.kind || '', clip(spec.scenario_key, 80), clip(ctx.disease_label, 80), JSON.stringify(spec), status, JSON.stringify(review),
@@ -215,7 +218,7 @@ function registerWidgets(app, { db, findClient, llm }) {
         const t = existing.find((e) => e.id === out.reuse);
         result = { toolId: t.id, toolStatus: t.status, reused: true };
       } else if (Array.isArray(out.tools) && out.tools.length) {
-        result = await processDraft(out.tools[0], { name: rq.name, why: rq.why, disease_label: rq.disease_label, situation: sit, catalog });
+        result = await processDraft(out.tools[0], { name: rq.name, why: rq.why, disease_label: rq.disease_label, situation: sit, catalog, isTest: rq.source === 'test_sandbox' || String(rq.client_id).includes('test_sandbox') });
       } else {
         const why = (out.rejected_ideas || []).map((r) => r.reason).filter(Boolean).join('；');
         await db.query(`UPDATE llmwiki.widget_request SET status='dropped', note=$2, updated_at=$3 WHERE id=$1`, [rid, clip(why || 'AI 判断不需要做工具', 300), Date.now()]);
@@ -231,6 +234,32 @@ function registerWidgets(app, { db, findClient, llm }) {
     } finally { running--; }
   }
 
+  // 拆开评估：聊天里的 AI 只负责“记下新情况”；是否需要做新小工具，由这个独立的小判断来定（登记成 ai_chat 需求，不上首页，出结果后 AI 下次聊天告知）
+  const EVAL_SYSTEM = `你是健康产品的“办事需求判断员”。输入是用户在聊天里说的一句新情况，以及平台已有小工具的名字。
+默认倾向：只要这句话涉及一件【有现实办事环节】的事——出行/出差/坐飞机、住院/手术前后、复诊/挂号/就医流程、康复用品/辅具选购、搬家、陪护安排、办手续——就判 need=true（这类事都能做成固定程序：算数量/时间、清单、选购对比、分步指引），除非【已有工具名】里已经有明显同一件事的工具。
+只有明确属于下面这些才判 need=false：饮食/吃什么、服药提醒、症状描述、心情、运动、打卡数据、闲聊、单纯的医学知识咨询。
+只输出 JSON：{"need":true|false,"name":"工具名(≤14字，不含病名)","why":"用户要解决什么、需要算什么或列什么(≤80字)"}`;
+  app.post('/api/clients/:id/widgets/evaluate', async (req, res) => {
+    try {
+      await ready;
+      if (!await findClient(req.params.id)) return res.status(404).json({ error: '客户不存在' });
+      const text = clip((req.body || {}).text, 300);
+      if (!text) return res.status(400).json({ error: 'text 必填' });
+      const names = (await db.query(`SELECT name FROM llmwiki.widget_tool WHERE status = 'approved' ORDER BY created_at DESC LIMIT 80`)).rows.map((r) => r.name);
+      const mine = (await db.query(`SELECT name FROM llmwiki.widget_request WHERE client_id=$1 AND status<>'dropped' LIMIT 50`, [req.params.id])).rows.map((r) => r.name);
+      let out;
+      try { out = parseJson(await llm(EVAL_SYSTEM, `【用户这句话】${text}\n【平台已有工具名】${names.join('、') || '无'}\n【该用户已登记的需求】${mine.join('、') || '无'}`, { max_tokens: 300, temperature: 0 })); } catch (e) { return res.json({ need: false, error: 'eval_failed' }); }
+      console.log('[WidgetEval]', req.params.id, JSON.stringify(out).slice(0, 300));
+      if (!out || !out.need || !clip(out.name, 40)) return res.json({ need: false });
+      const name = clip(out.name, 40);
+      if (mine.includes(name)) return res.json({ need: false, existed: true });
+      const id = uid('wr');
+      await db.query(`INSERT INTO llmwiki.widget_request (id,client_id,name,why,disease_label,source,catalog,status,pinned,notified,created_at,updated_at) VALUES ($1,$2,$3,$4,'','ai_chat',$5,'queued',FALSE,FALSE,$6,$6)`,
+        [id, req.params.id, name, clip(out.why || text, 200), JSON.stringify(names.slice(0, 80)), Date.now()]);
+      res.status(201).json({ need: true, request_id: id, name });
+    } catch (e) { res.status(500).json({ error: '评估失败: ' + e.message }); }
+  });
+
   // ── 用户侧 ──
   app.post('/api/clients/:id/widgets/requests', async (req, res) => {
     try {
@@ -245,8 +274,10 @@ function registerWidgets(app, { db, findClient, llm }) {
         const dupe = (await db.query(`SELECT id FROM llmwiki.widget_request WHERE client_id=$1 AND name=$2 AND status<>'dropped' LIMIT 1`, [req.params.id, it.name])).rows[0];
         if (dupe) { created.push({ id: dupe.id, name: it.name, existed: true }); continue; }
         const id = uid('wr');
-        await db.query(`INSERT INTO llmwiki.widget_request (id,client_id,name,why,disease_label,source,catalog,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'queued',$8,$8)`,
-          [id, req.params.id, it.name, it.why, clip(b.disease_label, 80), clip(b.source, 40) || 'onboarding', JSON.stringify(catalog), Date.now()]);
+        // 建档时登记的直接上首页；AI 聊天里登记的，用户说“放首页”之后才上首页，并在出结果后由 AI 在聊天里告知一次
+        const fromChat = clip(b.source, 40) === 'ai_chat';
+        await db.query(`INSERT INTO llmwiki.widget_request (id,client_id,name,why,disease_label,source,catalog,status,pinned,notified,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'queued',$8,$9,$10,$10)`,
+          [id, req.params.id, it.name, it.why, clip(b.disease_label, 80), clip(b.source, 40) || 'onboarding', JSON.stringify(catalog), !fromChat, !fromChat, Date.now()]);
         created.push({ id, name: it.name });
       }
       res.status(201).json({ success: true, requests: created });
@@ -263,18 +294,73 @@ function registerWidgets(app, { db, findClient, llm }) {
     } catch (e) { res.status(500).json({ error: '生成失败: ' + e.message }); }
   });
 
+  // scope=all（AI 用）：含尚未放首页的；默认（首页用）：只含已放首页的，外加“未放首页但排队/失败”的隐藏项（hidden:true，仅供首页补发生成）
   app.get('/api/clients/:id/widgets', async (req, res) => {
     try {
       await ready;
       if (!await findClient(req.params.id)) return res.status(404).json({ error: '客户不存在' });
-      const rs = (await db.query(`SELECT r.id, r.name, r.status, r.tool_id, t.name AS tool_name, t.kind, t.spec, t.status AS tool_status
+      const all = String(req.query.scope || '') === 'all';
+      const rs = (await db.query(`SELECT r.id, r.name, r.status, r.pinned, r.tool_id, t.name AS tool_name, t.kind, t.spec, t.status AS tool_status
         FROM llmwiki.widget_request r LEFT JOIN llmwiki.widget_tool t ON t.id = r.tool_id
-        WHERE r.client_id=$1 AND r.status<>'dropped' ORDER BY r.created_at ASC LIMIT 20`, [req.params.id])).rows;
-      res.json({
-        widgets: rs.map((r) => (r.status === 'ready' && r.tool_status === 'approved'
+        WHERE r.client_id=$1 AND r.status<>'dropped' ORDER BY r.created_at ASC LIMIT 40`, [req.params.id])).rows;
+      const out = [];
+      for (const r of rs) {
+        const base = r.status === 'ready' && r.tool_status === 'approved'
           ? { request_id: r.id, name: r.name, status: 'ready', tool: publicView({ id: r.tool_id, name: r.tool_name, kind: r.kind, spec: r.spec }) }
-          : { request_id: r.id, name: r.name, status: 'preparing', state: r.status })),
-      });
+          : { request_id: r.id, name: r.name, status: 'preparing', state: r.status };
+        if (all) out.push({ ...base, pinned: !!r.pinned });
+        else if (r.pinned) out.push(base);
+        else if (r.status === 'queued' || r.status === 'failed') out.push({ ...base, hidden: true });
+      }
+      res.json({ widgets: out });
+    } catch (e) { res.status(500).json({ error: '读取失败: ' + e.message }); }
+  });
+
+  // 已上架工具目录（只含名称/类型/适用场景），供 AI 判断“现有工具里有没有”
+  app.get('/api/widgets/catalog', async (req, res) => {
+    try {
+      await ready;
+      const rows = (await db.query(`SELECT id, name, kind, spec FROM llmwiki.widget_tool WHERE status='approved' ORDER BY created_at DESC LIMIT 60`)).rows;
+      res.json({ tools: rows.map((t) => ({ id: t.id, name: t.name, kind: t.kind, when: clip(t.spec && t.spec.trigger && t.spec.trigger.when, 120), output: clip(t.spec && t.spec.output, 80) })) });
+    } catch (e) { res.status(500).json({ error: '读取失败: ' + e.message }); }
+  });
+
+  app.get('/api/widgets/tools/:tid', async (req, res) => {
+    try {
+      await ready;
+      const t = (await db.query(`SELECT id, name, kind, spec FROM llmwiki.widget_tool WHERE id=$1 AND status='approved'`, [req.params.tid])).rows[0];
+      if (!t) return res.status(404).json({ error: '工具不存在或尚未上架' });
+      res.json({ tool: publicView(t) });
+    } catch (e) { res.status(500).json({ error: '读取失败: ' + e.message }); }
+  });
+
+  // 放到首页：给定 request_id（自己已有的需求）或 tool_id（现成已上架的工具，为该用户新建一条已就绪的需求）
+  app.post('/api/clients/:id/widgets/pin', async (req, res) => {
+    try {
+      await ready;
+      if (!await findClient(req.params.id)) return res.status(404).json({ error: '客户不存在' });
+      const b = req.body || {};
+      if (b.request_id) {
+        const r = await db.query(`UPDATE llmwiki.widget_request SET pinned=TRUE, updated_at=$3 WHERE id=$1 AND client_id=$2 RETURNING id`, [String(b.request_id), req.params.id, Date.now()]);
+        if (!r.rowCount) return res.status(404).json({ error: '需求不存在' });
+        return res.json({ success: true, request_id: r.rows[0].id });
+      }
+      const t = (await db.query(`SELECT id, name FROM llmwiki.widget_tool WHERE id=$1 AND status='approved'`, [String(b.tool_id || '')])).rows[0];
+      if (!t) return res.status(404).json({ error: '工具不存在或尚未上架' });
+      const have = (await db.query(`SELECT id FROM llmwiki.widget_request WHERE client_id=$1 AND tool_id=$2 AND status<>'dropped' LIMIT 1`, [req.params.id, t.id])).rows[0];
+      if (have) { await db.query(`UPDATE llmwiki.widget_request SET pinned=TRUE, updated_at=$2 WHERE id=$1`, [have.id, Date.now()]); return res.json({ success: true, request_id: have.id }); }
+      const id = uid('wr');
+      await db.query(`INSERT INTO llmwiki.widget_request (id,client_id,name,why,source,status,tool_id,pinned,notified,created_at,updated_at) VALUES ($1,$2,$3,'用户在聊天里选用现成工具','ai_chat_pin','ready',$4,TRUE,TRUE,$5,$5)`, [id, req.params.id, t.name, t.id, Date.now()]);
+      res.status(201).json({ success: true, request_id: id });
+    } catch (e) { res.status(500).json({ error: '放到首页失败: ' + e.message }); }
+  });
+
+  // AI 聊天里登记的需求有了结果（上架/没做成）→ 取走一次，由 AI 在下次聊天里自然告知（取走即标记，不重复告知）
+  app.post('/api/clients/:id/widgets/notices', async (req, res) => {
+    try {
+      await ready;
+      const r = await db.query(`UPDATE llmwiki.widget_request SET notified=TRUE WHERE client_id=$1 AND notified=FALSE AND source='ai_chat' AND status IN ('ready','dropped') RETURNING id, name, status, pinned`, [req.params.id]);
+      res.json({ notices: r.rows.map((x) => ({ request_id: x.id, name: x.name, status: x.status === 'ready' ? 'ready' : 'dropped', pinned: !!x.pinned })) });
     } catch (e) { res.status(500).json({ error: '读取失败: ' + e.message }); }
   });
 
@@ -370,7 +456,9 @@ function registerWidgets(app, { db, findClient, llm }) {
     try {
       await ready;
       const ids = (Array.isArray(req.body && req.body.ids) ? req.body.ids : []).filter((x) => typeof x === 'string').slice(0, 100);
-      const r = await db.query(`DELETE FROM llmwiki.widget_tool WHERE id = ANY($1) AND (name LIKE 'test_sandbox%' OR id IN (SELECT tool_id FROM llmwiki.widget_request WHERE source='test_sandbox')) RETURNING id`, [ids]);
+      const r = await db.query(`DELETE FROM llmwiki.widget_tool WHERE id = ANY($1) AND (name LIKE 'test_sandbox%' OR id IN (SELECT tool_id FROM llmwiki.widget_request WHERE source='test_sandbox')
+        OR (id IN (SELECT tool_id FROM llmwiki.widget_request WHERE client_id LIKE '%test_sandbox%') AND id NOT IN (SELECT tool_id FROM llmwiki.widget_request WHERE client_id NOT LIKE '%test_sandbox%' AND tool_id <> ''))
+        OR (status='pending_review' AND id NOT IN (SELECT tool_id FROM llmwiki.widget_request WHERE tool_id <> ''))) RETURNING id`, [ids]);
       res.json({ deleted: r.rowCount });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

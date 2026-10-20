@@ -75,6 +75,26 @@ function registerSituation(app, { db, findClient }) {
     } catch (e) { res.status(500).json({ error: '读取情景档案失败: ' + e.message }); }
   });
 
+  // 聊天里出现的新情况：追加一份带日期的档案（原话保留，不覆盖历史）；摘要 = 之前最新摘要 + 这条新情况，供方案/饮食/打卡读取
+  app.post('/api/clients/:id/plans/situation/note', async (req, res) => {
+    try {
+      await ready;
+      if (!await findClient(req.params.id)) return res.status(404).json({ error: '客户不存在' });
+      const text = clip((req.body || {}).text, 300);
+      if (!text) return res.status(400).json({ error: 'text 必填（用户原话）' });
+      const d = new Date(Date.now() + 8 * 3600 * 1000);
+      const stamp = `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      const prev = (await db.query('SELECT summary FROM llmwiki.client_situation WHERE client_id=$1 ORDER BY created_at DESC LIMIT 1', [req.params.id])).rows[0];
+      const item = { question_id: 'chat_note', question: `聊天中提到的新情况（${stamp}）`, options: [], answer_value: '', other_text: text, answer_text: text };
+      let summary = [prev && prev.summary, `${item.question}：${text}`].filter(Boolean).join('；');
+      if (summary.length > 800) summary = summary.slice(-800);
+      const submissionId = `chat_${Date.now().toString(36)}`;
+      await db.query(`INSERT INTO llmwiki.client_situation (client_id, submission_id, source, items, summary, created_at) VALUES ($1,$2,'ai_chat',$3,$4,$5)`,
+        [req.params.id, submissionId, JSON.stringify([item]), summary, Date.now()]);
+      res.status(201).json({ success: true, submission_id: submissionId, summary });
+    } catch (e) { res.status(500).json({ error: '追加情景档案失败: ' + e.message }); }
+  });
+
   return { clear: (id) => db.query(`DELETE FROM llmwiki.client_situation WHERE client_id=$1`, [id]).catch(() => {}) };
 }
 
