@@ -1272,13 +1272,11 @@ app.post('/api/clients/:id/logs/batch', async (req, res) => {
 let _openaiClient = null;
 function getOpenAI() {
   if (!_openaiClient) {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.ARK_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY 或 ARK_API_KEY 环境变量未设置');
-    const baseURL = process.env.GEMINI_API_KEY
-      ? 'https://generativelanguage.googleapis.com/v1beta/openai/'
-      : (process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3');
+    const apiKey = process.env.ARK_API_KEY;
+    if (!apiKey) throw new Error('ARK_API_KEY 环境变量未设置');
+    const baseURL = process.env.ARK_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
     const modelName = process.env.SYNC_MODEL || process.env.ARK_MODEL || 'deepseek-v4-flash-ga-260731';
-    console.log(`[LLM] 使用 ${process.env.GEMINI_API_KEY ? 'Gemini' : modelName} baseURL=${baseURL}`);
+    console.log(`[LLM] 使用 ${modelName} baseURL=${baseURL}`);
     _openaiClient = new OpenAI({ apiKey, baseURL });
   }
   return _openaiClient;
