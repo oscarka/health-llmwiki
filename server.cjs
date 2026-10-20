@@ -20,7 +20,10 @@ const { registerHealthPlan } = require('./health_plan/healthPlan.cjs');
 const { registerMaterialPlan } = require('./health_plan/materialRoutes.cjs');
 const { registerCheckin } = require('./health_plan/checkin.cjs');
 const { registerNutrition } = require('./health_plan/nutrition.cjs');
+const { registerValidity } = require('./health_plan/validity.cjs');
+const { registerLlmProxy } = require('./health_plan/llmProxy.cjs');
 app.use('/api/generic-wiki', genericWikiRouter);
+registerLlmProxy(app);
 
 // ──────────────────── 前端静态文件 ────────────────────
 const DIST_DIR = path.join(__dirname, 'dist');
@@ -378,7 +381,9 @@ const savePermissions = async (id, patch) => {
 };
 ensurePermsTable();
 
+let situationApi = null;
 const deleteClientData = async (id) => {
+  try { if (situationApi) await situationApi.clear(id); } catch (err) {}
   try {
     await db.query('DELETE FROM llmwiki.client_service_permissions WHERE client_id=$1', [id]);
   } catch (err) {}
@@ -954,8 +959,14 @@ const planProfileText = async (id) => {
   let hist = ''; try { const w = await readWikiPages(id); hist = String(w['medical_history.md'] || '').replace(/<!--[\s\S]*?-->/g, '').slice(0, 1200); } catch (e) { /* 资料读取失败只影响基线，不影响主流程 */ }
   return [`年龄：${c.age || '未填写'}`, `性别：${c.gender || '未填写'}`, `过敏：${c.allergies || '未填写'}`, hist ? `病史摘要：${hist}` : ''].filter(Boolean).join('\n');
 };
-registerCheckin(app, { findClient, planApi, getProfileText: planProfileText });
+const checkinApi = registerCheckin(app, { findClient, planApi, getProfileText: planProfileText });
+registerValidity(app, { db, findClient, planApi, appendLog, invalidateCheckin: (id) => checkinApi && checkinApi.invalidate && checkinApi.invalidate(id) });
+const { registerCheckinLog } = require('./health_plan/checkinLog.cjs');
+registerCheckinLog(app, { db, findClient, planApi });
 registerNutrition(app, { db, findClient, planApi, getProfileText: planProfileText });
+// 情景档案：建档时的情景问答原样存档（见 health_plan/situation.cjs），纯新增。
+const { registerSituation } = require('./health_plan/situation.cjs');
+situationApi = registerSituation(app, { db, findClient });
 
 // 4a'. 运行时自检（只读）：线上版本与关键配置是否到位。只返回"是否已设置"，不返回任何密钥值。
 app.get('/api/_meta', async (req, res) => {

@@ -93,11 +93,32 @@ const targetText = (t) => {
 };
 
 /** 给 AI 管家看的"一页纸"摘要（短，只含生效版本） */
+const STALE_MODES = ['confirm_first', 'historical'];
+/** 医嘱有效性状态：valid=用户确认且未到期 | paused=用户选择暂不执行 | unconfirmed=材料较旧、还没确认（或确认已到期） | none=不需要确认 */
+function validityState(active, now = Date.now()) {
+  if (!active) return { state: 'none' };
+  const v = active.meta && active.meta.validity;
+  const stale = (active.items || []).find((i) => i.origin && STALE_MODES.includes(i.origin.mode));
+  const ref = ((active.items || []).find((i) => i.origin && i.origin.ref_date) || {}).origin || {};
+  const base = { ref_date: ref.ref_date || null, doc_type: ref.doc_type || '' };
+  if (v && v.status === 'paused') return { state: 'paused', ...base, at: v.at };
+  if (v && v.status === 'valid') {
+    if (v.valid_until && now > v.valid_until) return { state: 'unconfirmed', expired: true, ...base, confirmed_at: v.confirmed_at };
+    return { state: 'valid', ...base, confirmed_at: v.confirmed_at, valid_until: v.valid_until };
+  }
+  return stale ? { state: 'unconfirmed', ...base } : { state: 'none', ...base };
+}
+const fmtDay = (ms) => new Date(Number(ms) + 8 * 3600 * 1000).toISOString().slice(0, 10);
+
 function renderPlanSummary(active) {
   if (!active) return '';
   const lines = [`【健康计划·生效版本 v${active.version}】`];
   if (active.phase_title) lines.push(`阶段：${active.phase_title}`);
   if (active.primary_goal) lines.push(`总目标：${active.primary_goal}`);
+  const vs = validityState(active);
+  if (vs.state === 'valid') lines.push(`医嘱有效性：用户已于 ${fmtDay(vs.confirmed_at)} 确认仍有效`);
+  else if (vs.state === 'paused') lines.push('医嘱有效性：用户选择暂不执行，待复诊确认');
+  else if (vs.state === 'unconfirmed') lines.push(`医嘱有效性：尚未确认（材料日期 ${vs.ref_date || '未知'}${vs.doc_type ? '，' + vs.doc_type : ''}）。用户说医嘱仍有效/仍在执行时，先复述再用 confirm_plan_validity 工具记录`);
   for (const ln of LINES) {
     const its = active.items.filter((i) => i.line === ln);
     if (!its.length) continue;
@@ -157,7 +178,7 @@ function registerHealthPlan(app, { db, findClient, appendLog }) {
       const drafts = (await db.query(`SELECT * FROM llmwiki.plan_versions WHERE client_id=$1 AND status='draft' ORDER BY created_at DESC`, [id])).rows.map(rowToPlan);
       const history = (await db.query(`SELECT * FROM llmwiki.plan_versions WHERE client_id=$1 AND status IN ('active','superseded') ORDER BY version DESC`, [id])).rows.map(rowToPlan)
         .map((p) => ({ ...p, items: undefined, item_count: p.items.length }));
-      res.json({ active, drafts, history, summary: renderPlanSummary(active) });
+      res.json({ active, drafts, history, summary: renderPlanSummary(active), validity: validityState(active) });
     } catch (err) { res.status(500).json({ error: '读取计划失败: ' + err.message }); }
   });
 
@@ -166,7 +187,7 @@ function registerHealthPlan(app, { db, findClient, appendLog }) {
     try {
       if (!await needClient(req, res)) return;
       const active = await getActive(req.params.id);
-      res.json({ active, summary: renderPlanSummary(active) });
+      res.json({ active, summary: renderPlanSummary(active), validity: validityState(active) });
     } catch (err) { res.status(500).json({ error: '读取生效计划失败: ' + err.message }); }
   });
 
@@ -237,6 +258,14 @@ function registerHealthPlan(app, { db, findClient, appendLog }) {
       }
       const newVer = curVer + 1;
       const now = Date.now();
+      // 用户在确认页取消勾选的条目：生效前从草稿里剔除（只允许剔除草稿里存在的 key）
+      const exclude = Array.isArray(req.body && req.body.exclude) ? new Set(req.body.exclude.map(String)) : null;
+      if (exclude && exclude.size) {
+        const items = (d.items || []).filter((i) => !exclude.has(i.key));
+        const changes = (d.changes || []).filter((c) => !exclude.has(c.key));
+        if (!items.length) return res.status(400).json({ error: '至少要保留一条计划项；如果都不需要，请选择“跳过”' });
+        await db.query(`UPDATE llmwiki.plan_versions SET items=$1, changes=$2 WHERE id=$3 AND status='draft'`, [JSON.stringify(items), JSON.stringify(changes), pid]);
+      }
       // 条件更新：只有仍是 draft 才生效，防止重复确认
       const upd = await db.query(`UPDATE llmwiki.plan_versions SET status='active', version=$1, confirmed_at=$2 WHERE id=$3 AND status='draft' RETURNING id`, [newVer, now, pid]);
       if (!upd.rows[0]) return res.status(409).json({ error: '提案已被处理' });
@@ -275,4 +304,4 @@ function registerHealthPlan(app, { db, findClient, appendLog }) {
   };
 }
 
-module.exports = { registerHealthPlan, normalizeItem, applyPatch, renderPlanSummary, LINES, LINE_LABEL, SOURCE_LABEL, SOURCES };
+module.exports = { registerHealthPlan, normalizeItem, applyPatch, renderPlanSummary, validityState, LINES, LINE_LABEL, SOURCE_LABEL, SOURCES };

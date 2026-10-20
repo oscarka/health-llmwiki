@@ -370,17 +370,21 @@ async function generateCore(e, cls, asOf, llm, opts) {
 ${JSON.stringify(e)}
 \u8BF7\u8F93\u51FA\u8BA1\u5212\u3002`;
   for (let a = 1; a <= maxAttempts; a++) {
-    if (Date.now() > deadline) break;
+    if (Date.now() > deadline) { console.log(`[MaterialPlan] attempt=${a} skipped: deadline exceeded`); break; }
+    const tA = Date.now();
     let raw = "";
     try {
       raw = await llm(systemPrompt(cls.mode, note), user, Math.min(timeoutMs, Math.max(5e3, deadline - Date.now())));
     } catch (err) {
       hist.push([`llm_error:${err.message?.slice(0, 80)}`]);
+      console.log(`[MaterialPlan] attempt=${a}/${maxAttempts} gen llm_error after_ms=${Date.now() - tA} mode=${cls.mode} err=${String(err.message).slice(0, 80)}`);
       continue;
     }
+    const tGen = Date.now() - tA;
     const plan = parsePlan(raw, cls.mode);
     if (!plan) {
       hist.push(["unparseable_json"]);
+      console.log(`[MaterialPlan] attempt=${a}/${maxAttempts} unparseable_json gen_ms=${tGen} raw_chars=${raw.length}`);
       note = "\u8F93\u51FA\u4E0D\u662F\u5408\u6CD5 JSON\uFF0C\u8BF7\u4E25\u683C\u6309 JSON \u7ED3\u6784\u8F93\u51FA\u3002";
       continue;
     }
@@ -388,6 +392,7 @@ ${JSON.stringify(e)}
     const vios = validatePlan(plan, e, cls.mode);
     if (vios.length) {
       hist.push(vios.map((x) => `${x.rule}:${x.detail}`));
+      console.log(`[MaterialPlan] attempt=${a}/${maxAttempts} validate_failed gen_ms=${tGen} items=${plan.items.length} violations=${JSON.stringify(vios.slice(0, 6).map((x) => `${x.rule}:${String(x.detail).slice(0, 60)}`))}`);
       note = vios.slice(0, 8).map((x) => `- ${x.rule}\uFF1A${x.detail}`).join("\n");
       continue;
     }
@@ -398,7 +403,9 @@ ${JSON.stringify(e)}
       hist.push(after.map((x) => `post:${x.rule}:${x.detail}`));
       plan.items = plan.items.filter((i) => !adds.includes(i));
     }
+    const tR = Date.now();
     const rv = await reviewPlan(opts.reviewLlm ?? llm, plan, e, Math.min(timeoutMs, Math.max(5e3, deadline - Date.now())));
+    console.log(`[MaterialPlan] attempt=${a}/${maxAttempts} review gen_ms=${tGen} review_ms=${Date.now() - tR} issues=${rv.issues.length} unavailable=${!!rv.unavailable} items=${plan.items.length}`);
     if (rv.issues.length) {
       hist.push(rv.issues.map((x) => `review:${x.item_key || "-"}:${x.problem}`));
       note = rv.issues.map((x) => `- \u590D\u6838\u5458\u6307\u51FA${x.item_key ? `\uFF08\u6761\u76EE ${x.item_key}\uFF09` : ""}\uFF1A${x.problem}`).join("\n");
@@ -429,16 +436,26 @@ ${JSON.stringify(e)}
 }
 function makeArkLlm(cfg) {
   return async (system, user, timeoutMs) => {
-    const r = await fetch(`${cfg.url || "https://ark.cn-beijing.volces.com/api/v3"}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.key}` },
-      body: JSON.stringify({ model: cfg.model, temperature: 0.2, ...cfg.extra || {}, messages: [{ role: "system", content: system }, { role: "user", content: user }] }),
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-    const j = await r.json();
-    const t = j?.choices?.[0]?.message?.content;
-    if (!t) throw new Error(j?.error?.message || `empty response ${r.status}`);
-    return t;
+    const t0 = Date.now();
+    const tag = String(system || "").replace(/\s+/g, " ").slice(0, 18);
+    const base = `[LLM] model=${cfg.model} think=${cfg.extra ? (cfg.extra.thinking ? cfg.extra.thinking.type : "effort:" + cfg.extra.reasoning_effort) : "default"} sys="${tag}" in_chars=${String(system || "").length + String(user || "").length} timeout_ms=${timeoutMs}`;
+    try {
+      const r = await fetch(`${cfg.url || "https://ark.cn-beijing.volces.com/api/v3"}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.key}` },
+        body: JSON.stringify({ model: cfg.model, temperature: 0.2, ...cfg.extra || {}, messages: [{ role: "system", content: system }, { role: "user", content: user }] }),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      const tHdr = Date.now() - t0;
+      const j = await r.json();
+      const t = j?.choices?.[0]?.message?.content;
+      console.log(`${base} status=${r.status} headers_ms=${tHdr} total_ms=${Date.now() - t0} prompt_tok=${j?.usage?.prompt_tokens ?? "-"} out_tok=${j?.usage?.completion_tokens ?? "-"} reasoning_tok=${j?.usage?.completion_tokens_details?.reasoning_tokens ?? "-"} ${t ? "ok" : "EMPTY:" + (j?.error?.message || "")}`);
+      if (!t) throw new Error(j?.error?.message || `empty response ${r.status}`);
+      return t;
+    } catch (err) {
+      if (!String(err && err.message).startsWith("empty response")) console.log(`${base} FAILED after_ms=${Date.now() - t0} err=${String(err && err.message).slice(0, 120)}`);
+      throw err;
+    }
   };
 }
 function makeArkVision(cfg) {

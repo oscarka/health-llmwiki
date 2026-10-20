@@ -32,7 +32,7 @@ const SourceTag = ({ s }) => (
   </span>
 );
 
-const ItemRow = ({ it, mark }) => (
+const ItemRow = ({ it, mark, ck }) => (
   <div data-testid={`plan-item-${it.key}`} style={{ padding: '8px 12px', borderRadius: 8, background: mark === 'add' ? '#ecfdf5' : mark === 'remove' ? '#fef2f2' : '#f8fafc', marginBottom: 6, border: '1px solid #e2e8f0' }}>
     <div style={{ fontWeight: 600, fontSize: 14, color: '#0f172a', textDecoration: mark === 'remove' ? 'line-through' : 'none' }}>
       {it.title}
@@ -41,8 +41,43 @@ const ItemRow = ({ it, mark }) => (
     </div>
     {it.detail && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{it.detail}</div>}
     {it.evidence && <div data-testid={`plan-evidence-${it.key}`} style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>依据原句：「{it.evidence}」{it.origin && it.origin.ref_date ? `（${it.origin.doc_type} ${it.origin.ref_date}）` : ''}</div>}
+    <CheckinBadge it={it} ck={ck} />
   </div>
 );
+
+const CK_LINES = ['medication', 'diet', 'exercise', 'monitor'];
+const CK_KIND = { med: '服药', diet: '饮食', exercise: '运动', monitor: '监测' };
+const fmtHM = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
+function CheckinBadge({ it, ck }) {
+  if (!ck || !CK_LINES.includes(it.line)) return null;
+  const s = ck.by_key && ck.by_key[it.key];
+  let text, bg, color;
+  if (s && s.today_done) { text = `✅ 今日已打卡 · 近${ck.window_days}天 ${s.done_days} 天`; bg = '#dcfce7'; color = '#166534'; }
+  else if (s && (s.done_days > 0 || s.today_undone)) { text = `今日未打卡 · 近${ck.window_days}天打卡 ${s.done_days} 天`; bg = '#fef3c7'; color = '#92400e'; }
+  else { text = '还没有打卡记录'; bg = '#f1f5f9'; color = '#64748b'; }
+  return <div data-testid={`plan-checkin-${it.key}`} style={{ marginTop: 6 }}><span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 10, background: bg, color }}>{text}</span></div>;
+}
+
+function CheckinTimeline({ ck }) {
+  const tl = (ck && ck.timeline) || [];
+  return (
+    <section data-testid="checkin-timeline" style={{ marginTop: 8, marginBottom: 18 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 8 }}>📅 打卡记录 <span style={{ fontSize: 12, fontWeight: 500, color: '#94a3b8' }}>· 近 {ck ? ck.window_days : 7} 天，客户自己在手机上点的勾</span></div>
+      {tl.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8' }}>暂无打卡记录（仅记录从现在起的打卡）</div>}
+      {tl.map((d) => (
+        <div key={d.day} style={{ marginBottom: 8, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>{d.day}</div>
+          {d.events.map((e, i) => (
+            <div key={i} style={{ fontSize: 12, color: e.done ? '#0f172a' : '#94a3b8', textDecoration: e.done ? 'none' : 'line-through', marginBottom: 2 }}>
+              {fmtHM(e.at)} · {CK_KIND[e.kind] || e.kind} · {e.title}{e.slot ? `（${e.slot}）` : ''}{e.done ? '' : '　已撤销'}
+            </div>
+          ))}
+        </div>
+      ))}
+    </section>
+  );
+}
 
 const describeChange = (c) => {
   const a = c.after, b = c.before;
@@ -60,6 +95,12 @@ export default function HealthPlanPanel({ clientId }) {
   const [verData, setVerData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [wizard, setWizard] = useState(false);
+  const [ck, setCk] = useState(null);
+  useEffect(() => {
+    setCk(null);
+    const d = new Date(); const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    fetch(`/api/clients/${clientId}/plans/checkin-summary?days=7&today=${today}`).then((r) => r.ok ? r.json() : null).then(setCk).catch(() => setCk(null));
+  }, [clientId]);
 
   const load = useCallback(async () => {
     try {
@@ -166,11 +207,12 @@ export default function HealthPlanPanel({ clientId }) {
                   <div key={ln.key} data-testid={`plan-line-${ln.key}`} style={{ marginBottom: 18 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 8 }}>{ln.icon} {ln.label} <span style={{ fontSize: 12, fontWeight: 500, color: '#94a3b8' }}>· {its.length} 项</span></div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
-                      {its.map((it) => <ItemRow key={it.key} it={it} />)}
+                      {its.map((it) => <ItemRow key={it.key} it={it} ck={ck} />)}
                     </div>
                   </div>
                 );
               })}
+              <CheckinTimeline ck={ck} />
             </>
           )}
         </section>

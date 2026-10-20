@@ -170,7 +170,8 @@ function registerCheckin(app, { findClient, planApi, getProfileText }) {
       const active = await planApi.getActive(id);
       const profileText = await getProfileText(id);
       const planKey = `${id}:${active ? active.id : 'none'}`;
-      const key = `${planKey}:${hash(profileText)}`;
+      const vt = active && active.meta && active.meta.validity ? `${active.meta.validity.status}${active.meta.validity.confirmed_at || active.meta.validity.at || ''}` : '';
+      const key = `${planKey}:${hash(profileText)}:${vt}`;
       const hit = cache.get(key);
       if (hit && Date.now() - hit.at < TTL && !req.query.refresh) return res.json(hit.value);
       const stale = lastByPlan.get(planKey);
@@ -178,6 +179,7 @@ function registerCheckin(app, { findClient, planApi, getProfileText }) {
       res.json(await build(key, planKey, active, profileText));
     } catch (err) { res.status(500).json({ error: '生成打卡清单失败: ' + err.message }); }
   });
+  return { invalidate: (id) => { for (const k of [...lastByPlan.keys()]) if (k.startsWith(id + ':')) lastByPlan.delete(k); } };
 }
 
 module.exports = { registerCheckin, buildCheckin, buildMeds, buildLifestyle };
