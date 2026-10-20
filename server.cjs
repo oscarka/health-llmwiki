@@ -137,7 +137,8 @@ const appendSyncHistoryToFile = (clientId, entry) => {
 
 // ──────────────────── Supabase / PostgreSQL 连接 ────────────────────
 function resolveDatabaseUrl(rawUrl) {
-  const url = rawUrl || process.env.DATABASE_URL || 'postgresql://postgres.feaeonavsqzewadgoqeh:lnZbMyimxpMYgUp5@aws-0-us-west-2.pooler.supabase.com:5432/postgres';
+  const url = rawUrl || process.env.DATABASE_URL;
+  if (!url) { console.error('[DB] 缺少环境变量 DATABASE_URL（线上来自 Secret Manager，本地写在 .env）'); process.exit(1); }
   // 如果是直连域名 db.<ref>.supabase.co，自动转为 pooler 域名以确保 IPv4 兼容性和连接稳定性
   const directMatch = url.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([a-z0-9]+)\.supabase\.co:(\d+)\/(.*)/);
   if (directMatch) {
