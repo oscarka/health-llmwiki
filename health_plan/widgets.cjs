@@ -433,6 +433,16 @@ function registerWidgets(app, { db, findClient, llm }) {
   app.post('/api/widgets/admin/tools/:tid/approve', needAdmin, decideTool('approve'));
   app.post('/api/widgets/admin/tools/:tid/reject', needAdmin, decideTool('reject'));
 
+  // 查看一条生成需求的进度（打回重做后用来跟踪 AI 是否已按意见重新生成）
+  app.get('/api/widgets/admin/requests/:rid', needAdmin, async (req, res) => {
+    try {
+      await ready;
+      const r = (await db.query('SELECT id, client_id, name, why, status, tool_id, note, attempts, updated_at FROM llmwiki.widget_request WHERE id=$1', [req.params.rid])).rows[0];
+      if (!r) return res.status(404).json({ error: '需求不存在' });
+      res.json({ ...r, updated_at: Number(r.updated_at) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   /** 打回重做：沿用原来的需求（谁要的/为什么），把医生意见追加进去，排队让 AI 重新生成；新结果仍走同一条检查+复核流水线 */
   async function queueRegenerate(tool, feedback) {
     const orig = (await db.query(`SELECT * FROM llmwiki.widget_request WHERE tool_id=$1 ORDER BY created_at ASC LIMIT 1`, [tool.id])).rows[0];

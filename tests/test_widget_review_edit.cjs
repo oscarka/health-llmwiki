@@ -24,7 +24,7 @@ const spec = (key, name, constants) => ({
 });
 
 (async () => {
-  const created = []; let origMode = null;
+  const created = []; const clients = []; let origMode = null;
   try {
     const st = await j('GET', '/api/widgets/admin/settings');
     ok('审核口令有效', st.s === 200);
@@ -63,38 +63,41 @@ const spec = (key, name, constants) => ({
     r = await j('POST', `/api/widgets/admin/tools/${d1.d.toolId}/edit`, { reviewer: 'x', disclaimer: '再改' });
     ok('已上架的工具不能再改(409)', r.s === 409);
 
-    // 5 打回重做：必须填意见
+    // 5 打回重做：必须填意见（用测试客户 + 真实的“出差带药”需求，这样 AI 不会把它当成无意义需求丢掉）
+    const cl = await fetch(BASE + '/api/clients', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: `test_sandbox_regen_${sfx}` }) }).then((x) => x.json());
+    clients.push(cl.id);
+    const rq = await fetch(`${BASE}/api/clients/${cl.id}/widgets/requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ name: '出差带药准备', why: '用户说下周坐飞机出差7天，药怎么分装带、要带几天的量' }], disease_label: '鼻腔肿物切除术后', catalog: ['服药提醒', '定制饮食'] }) }).then((x) => x.json());
     const k2 = `test_sandbox_regen_${sfx}`;
-    const d2 = await j('POST', '/api/widgets/admin/drafts', { spec: spec(k2, `test_sandbox 打回重做 ${sfx}`, [{ value: '备用多留 5 天', source: 'pending_review' }]), why: '用户说下周出差，药怎么带', disease_label: '测试病种', judge_override: PASS });
+    const d2 = await j('POST', '/api/widgets/admin/drafts', { spec: spec(k2, `test_sandbox 打回重做 ${sfx}`, [{ value: '备用多留 5 天', source: 'pending_review' }]), why: '用户说下周出差，药怎么带', disease_label: '鼻腔肿物切除术后', request_id: rq.requests[0].id, judge_override: PASS });
     created.push(d2.d.toolId);
     r = await j('POST', `/api/widgets/admin/tools/${d2.d.toolId}/reject`, { reviewer: '测试医生', regenerate: true });
     ok('打回重做不填意见被拒(400)', r.s === 400, r.d.error);
     ok('被拒后工具仍待审核', (await j('GET', '/api/widgets/admin/tools?status=pending_review')).d.tools.some((t) => t.id === d2.d.toolId));
 
-    // 6 打回重做：成功→原工具被驳回，生成新需求
+    // 6 打回重做：原工具被驳回，生成新需求，跟踪到 AI 生成完成
     r = await j('POST', `/api/widgets/admin/tools/${d2.d.toolId}/reject`, { reviewer: '测试医生', note: '备用天数不要写死5天，改成让用户自己填', regenerate: true });
-    ok('打回重做成功，并排队了新的生成', r.s === 200 && r.d.status === 'rejected' && !!(r.d.regenerate && r.d.regenerate.requestId), JSON.stringify(r.d));
+    const nrid = r.d.regenerate && r.d.regenerate.requestId;
+    ok('打回重做成功，并排队了新的生成', r.s === 200 && r.d.status === 'rejected' && !!nrid, JSON.stringify(r.d));
     const rej = (await j('GET', '/api/widgets/admin/tools?status=rejected')).d.tools.find((t) => t.id === d2.d.toolId);
     ok('原工具记录为“打回重做”', rej && rej.review.history.some((h) => h.action === 'reject' && h.regenerate && h.note.includes('不要写死')));
     r = await j('POST', `/api/widgets/admin/tools/${d2.d.toolId}/reject`, { reviewer: 'x', note: 'y', regenerate: true });
     ok('重复打回被拒(409)', r.s === 409);
-    console.log('（等待 AI 按意见重新生成，最多 90 秒…）');
-    // 新生成的工具会带“重新生成”的 request；没有 test_sandbox 客户时 isTest=false，需自行清理
-    let regen = null;
-    for (let i = 0; i < 30 && !regen; i++) {
+    console.log('（等待 AI 按意见重新生成，最多 120 秒…）');
+    let rs = null;
+    for (let i = 0; i < 40; i++) {
       await sleep(3000);
-      for (const s of ['pending_review', 'auto_rejected', 'approved']) {
-        const all = (await j('GET', `/api/widgets/admin/tools?status=${s}`)).d.tools;
-        regen = all.find((t) => t.id !== d2.d.toolId && t.id !== d1.d.toolId && /出差|带药|药/.test(t.name + t.spec.trigger) && (t.whys || '').includes('医生打回意见'));
-        if (regen) { created.push(regen.id); ok(`AI 已按意见重新生成新草稿（状态：${s}）`, true, `${regen.name} / why含意见=${(t => t)(regen.whys).includes('不要写死')}`); break; }
-      }
+      rs = (await j('GET', `/api/widgets/admin/requests/${nrid}`)).d;
+      if (rs && !['queued', 'generating'].includes(rs.status)) break;
     }
-    if (!regen) ok('AI 已按意见重新生成新草稿', false, '90 秒内没看到新草稿（可能被判为重复复用或生成失败，查 widget_request）');
+    ok('新需求的 why 里带着医生意见', rs && String(rs.why).includes('医生打回意见') && String(rs.why).includes('不要写死'));
+    ok('AI 已按意见重新生成并走完流水线', rs && ['in_review', 'ready'].includes(rs.status) && !!rs.tool_id, rs ? `${rs.status} / tool=${rs.tool_id} / ${rs.note}` : 'no status');
+    if (rs && rs.tool_id) created.push(rs.tool_id);
   } catch (e) {
     ok('测试流程异常', false, String(e.message || e));
   } finally {
     try {
       if (created.length) { const c = await j('POST', '/api/widgets/admin/_test_cleanup', { ids: created.filter(Boolean) }); console.log('清理工具', JSON.stringify(c.d)); }
+      for (const id of clients) await fetch(`${BASE}/api/clients/${id}`, { method: 'DELETE' }).catch(() => {});
       if (origMode) await j('PUT', '/api/widgets/admin/settings', { review_mode: origMode });
       const s2 = await j('GET', '/api/widgets/admin/settings');
       ok('审核模式已恢复', s2.d.review_mode === origMode, s2.d.review_mode);
