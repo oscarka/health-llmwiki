@@ -111,6 +111,7 @@ function lintTool(t) {
   for (const c of t.constants || []) {
     const src = String(c.source || '');
     if (/https?:\/\//.test(src)) hard.push(`常数「${clip(c.value, 20)}」的出处 URL 无法核实（后台没有联网搜索），请改为 pending_review`);
+    else if (c.confirmed_by) continue; // 医生在审核台里已核对并填写了出处
     else if (src === 'pending_review') human.push(`${n}: 常数「${clip(c.value, 20)}」待人工确认出处`);
     else if (!/医嘱原句/.test(src)) human.push(`${n}: 常数「${clip(c.value, 20)}」出处为“${clip(src, 30)}”（无 URL，需人工确认）`);
   }
@@ -413,20 +414,70 @@ function registerWidgets(app, { db, findClient, llm }) {
   const decideTool = (action) => async (req, res) => {
     try {
       await ready;
-      const t = (await db.query('SELECT id, status, review FROM llmwiki.widget_tool WHERE id=$1', [req.params.tid])).rows[0];
+      const t = (await db.query('SELECT id, name, disease_label, status, review FROM llmwiki.widget_tool WHERE id=$1', [req.params.tid])).rows[0];
       if (!t) return res.status(404).json({ error: '工具不存在' });
       if (t.status !== 'pending_review') return res.status(409).json({ error: `当前状态是 ${t.status}，只有 pending_review 能审核` });
       const by = clip(req.body && req.body.reviewer, 40) || '医生'; const note = clip(req.body && req.body.note, 300);
+      const regenerate = action === 'reject' && !!(req.body && req.body.regenerate);
+      if (regenerate && !note) return res.status(400).json({ error: '打回重做必须填写意见，AI 会按意见重新生成' });
       const status = action === 'approve' ? 'approved' : 'rejected';
-      const review = { ...t.review, history: [...(t.review.history || []), { at: Date.now(), by, action, note }] };
+      const review = { ...t.review, history: [...(t.review.history || []), { at: Date.now(), by, action, note, ...(regenerate ? { regenerate: true } : {}) }] };
       await db.query(`UPDATE llmwiki.widget_tool SET status=$2, review=$3, approved_by=$4, approved_mode=$5, updated_at=$6 WHERE id=$1`,
         [t.id, status, JSON.stringify(review), status === 'approved' ? by : '', status === 'approved' ? 'doctor' : '', Date.now()]);
       await syncRequests(t.id, status);
-      res.json({ success: true, status });
+      let regen = null;
+      if (regenerate) regen = await queueRegenerate(t, note);
+      res.json({ success: true, status, ...(regen ? { regenerate: regen } : {}) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   };
   app.post('/api/widgets/admin/tools/:tid/approve', needAdmin, decideTool('approve'));
   app.post('/api/widgets/admin/tools/:tid/reject', needAdmin, decideTool('reject'));
+
+  /** 打回重做：沿用原来的需求（谁要的/为什么），把医生意见追加进去，排队让 AI 重新生成；新结果仍走同一条检查+复核流水线 */
+  async function queueRegenerate(tool, feedback) {
+    const orig = (await db.query(`SELECT * FROM llmwiki.widget_request WHERE tool_id=$1 ORDER BY created_at ASC LIMIT 1`, [tool.id])).rows[0];
+    const id = uid('wr');
+    const why = clip(`${orig ? orig.why : '审核台打回重做'}【医生打回意见，请按此修改：${feedback}】`, 480);
+    await db.query(`INSERT INTO llmwiki.widget_request (id,client_id,name,why,disease_label,source,catalog,status,pinned,notified,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'queued',$8,$9,$10,$10)`,
+      [id, orig ? orig.client_id : 'admin_regen', orig ? orig.name : tool.name, why, orig ? orig.disease_label : (tool.disease_label || ''), orig ? orig.source : 'admin_regen',
+        JSON.stringify(orig ? orig.catalog : []), orig ? orig.pinned : false, orig ? orig.notified : true, Date.now()]);
+    setImmediate(() => { generateRequest(id).catch((e) => console.error('[Widgets] regenerate failed:', e.message)); });
+    return { requestId: id };
+  }
+
+  /** 医生改：只允许改“出处”和“免责声明”（数值本身写在程序里，数值不对请用“打回重做”）。改完重新自动检查，可同时通过上架。 */
+  app.post('/api/widgets/admin/tools/:tid/edit', needAdmin, async (req, res) => {
+    try {
+      await ready;
+      const t = (await db.query('SELECT id, spec, status, review FROM llmwiki.widget_tool WHERE id=$1', [req.params.tid])).rows[0];
+      if (!t) return res.status(404).json({ error: '工具不存在' });
+      if (t.status !== 'pending_review') return res.status(409).json({ error: `当前状态是 ${t.status}，只有 pending_review 能修改` });
+      const b = req.body || {};
+      const by = clip(b.reviewer, 40) || '医生'; const note = clip(b.note, 300);
+      const spec = JSON.parse(JSON.stringify(t.spec));
+      const changes = [];
+      for (const e of Array.isArray(b.constants) ? b.constants : []) {
+        const idx = Number(e && e.idx);
+        if (!Number.isInteger(idx) || !spec.constants || !spec.constants[idx]) return res.status(400).json({ error: `没有第 ${idx} 条常数` });
+        const src = clip(e.source, 200);
+        if (!src) return res.status(400).json({ error: '出处不能为空' });
+        if (/https?:\/\//.test(src)) return res.status(400).json({ error: '出处不要贴网址（系统无法核实网址）；请写明指南/教材名称与章节，或医嘱原句' });
+        if (spec.constants[idx].source !== src) changes.push(`常数#${idx + 1}出处：${clip(spec.constants[idx].source, 30)} → ${clip(src, 30)}`);
+        spec.constants[idx].source = src; spec.constants[idx].confirmed_by = by;
+      }
+      if (typeof b.disclaimer === 'string' && b.disclaimer.trim() && b.disclaimer.trim() !== spec.disclaimer) { changes.push('免责声明已修改'); spec.disclaimer = clip(b.disclaimer, 300); }
+      if (!changes.length && !(Array.isArray(b.constants) && b.constants.length)) return res.status(400).json({ error: '没有任何修改' });
+      const lint = lintTool(spec);
+      if (lint.hard.length) return res.status(400).json({ error: `修改后自动检查没过：${lint.hard.join('；')}` });
+      const approve = !!b.approve;
+      const review = { ...t.review, lint, history: [...(t.review.history || []), { at: Date.now(), by, action: 'edit', note: [changes.join('；'), note].filter(Boolean).join(' | ') }] };
+      if (approve) review.history.push({ at: Date.now(), by, action: 'approve', note: '修改后通过' });
+      await db.query(`UPDATE llmwiki.widget_tool SET spec=$2, review=$3, status=$4, approved_by=$5, approved_mode=$6, updated_at=$7 WHERE id=$1`,
+        [t.id, JSON.stringify(spec), JSON.stringify(review), approve ? 'approved' : 'pending_review', approve ? by : '', approve ? 'doctor' : '', Date.now()]);
+      if (approve) await syncRequests(t.id, 'approved');
+      res.json({ success: true, status: approve ? 'approved' : 'pending_review', changes, lint });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
 
   // 人工/外部草稿也走同一条检查+复核流水线
   app.post('/api/widgets/admin/drafts', needAdmin, async (req, res) => {
