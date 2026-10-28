@@ -396,6 +396,8 @@ const deleteClientData = async (id) => {
   try {
     await db.query('DELETE FROM llmwiki.plan_nutrition WHERE client_id=$1', [id]);
   } catch (err) {}
+  try { await db.query('DELETE FROM llmwiki.client_state WHERE client_id=$1', [id]); } catch (err) {}
+  try { await db.query('DELETE FROM llmwiki.client_corrections WHERE client_id=$1', [id]); } catch (err) {}
   try {
     const all = readPermsFile();
     if (all[id]) { delete all[id]; writePermsFile(all); }
@@ -981,6 +983,9 @@ app.get('/api/clients/:id/plans/profile-preview', async (req, res) => {
 });
 const checkinApi = registerCheckin(app, { findClient, planApi, getProfileText: planProfileText });
 registerValidity(app, { db, findClient, planApi, appendLog, invalidateCheckin: (id) => checkinApi && checkinApi.invalidate && checkinApi.invalidate(id) });
+// 三层状态（过去/现在/未来）唯一读取入口 + 状态/更正存储（见 health_plan/state.cjs），纯新增。
+const { registerState } = require('./health_plan/state.cjs');
+registerState(app, { db, findClient, planApi: { ...planApi, validityState: require('./health_plan/healthPlan.cjs').validityState }, readWikiPages, readLogs });
 const { registerCheckinLog } = require('./health_plan/checkinLog.cjs');
 registerCheckinLog(app, { db, findClient, planApi });
 registerNutrition(app, { db, findClient, planApi, getProfileText: planProfileText });
