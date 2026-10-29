@@ -157,7 +157,22 @@ function registerState(app, { db, findClient, planApi, readWikiPages, readLogs }
     } catch (err) { res.status(500).json({ error: '追加更正失败: ' + err.message }); }
   });
 
-  return { buildState };
+  /** 同步（sync）用：把聊天里用户自述的用药变化记到“现在·状态”的备注（不写进 wiki 用药页、也不改计划） */
+  async function addSyncNotes(id, notes) {
+    if (!notes || !notes.length) return;
+    await ready;
+    const cur = (await getStateRow(id)).state || {};
+    const arr = Array.isArray(cur.notes) ? cur.notes.slice() : [];
+    for (const n of notes) {
+      const text = String(n.text || '').slice(0, 200);
+      if (text && !arr.some((x) => (x && (x.text || x)) === text)) arr.push({ text, by: 'sync', log_id: n.log_id || '', at: Date.now() });
+    }
+    const next = { ...cur, notes: arr.slice(-30) };
+    await db.query(`INSERT INTO llmwiki.client_state (client_id, state, updated_at) VALUES ($1, $2::jsonb, $3)
+      ON CONFLICT (client_id) DO UPDATE SET state = EXCLUDED.state, updated_at = EXCLUDED.updated_at`, [id, JSON.stringify(next), Date.now()]);
+  }
+
+  return { buildState, addSyncNotes };
 }
 
 /** 三层状态 → 给 AI 的文本（文字与语音共用；“今日”部分由 skill-platform 追加） */

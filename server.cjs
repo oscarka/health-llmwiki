@@ -985,7 +985,7 @@ const checkinApi = registerCheckin(app, { findClient, planApi, getProfileText: p
 registerValidity(app, { db, findClient, planApi, appendLog, invalidateCheckin: (id) => checkinApi && checkinApi.invalidate && checkinApi.invalidate(id) });
 // 三层状态（过去/现在/未来）唯一读取入口 + 状态/更正存储（见 health_plan/state.cjs），纯新增。
 const { registerState } = require('./health_plan/state.cjs');
-registerState(app, { db, findClient, planApi: { ...planApi, validityState: require('./health_plan/healthPlan.cjs').validityState }, readWikiPages, readLogs });
+const stateApi = registerState(app, { db, findClient, planApi: { ...planApi, validityState: require('./health_plan/healthPlan.cjs').validityState }, readWikiPages, readLogs });
 const { registerCheckinLog } = require('./health_plan/checkinLog.cjs');
 registerCheckinLog(app, { db, findClient, planApi });
 registerNutrition(app, { db, findClient, planApi, getProfileText: planProfileText });
@@ -1455,6 +1455,11 @@ app.post('/api/clients/:id/sync', async (req, res) => {
     const stage1Prompt = `你是一个非常专业且细心的医疗事实提取助手。请从下面新增的沟通记录中提取所有的临床观察、医疗干预事实，以及用户画像信息（例如：新增诊断、主诉症状、生理指标数值、化验/CT检查结果、用药变更、留置管道、护理措施、沟通偏好、个人背景等）。
 严禁凭空编造事实或添加沟通记录中未提及的内容。对于每一条事实，必须明确匹配其来自哪一条沟通记录的 ID。
 
+🔒 说话人规则（最重要，必须遵守）：
+- 对话类记录（内容是“用户：… / AI：…”的格式）里，**只能从“用户：”说的话中提取事实**。“AI：”说的话只是上下文，**绝不能作为事实提取**——例如 AI 说“某药已经停了”“早上八点吃阿司匹林”“当前口服药为…”，都不是事实。
+- 报告/材料类记录（类型 ocr、ai_report，或标题为“建档上传报告”的）是医疗材料，可以正常提取。
+- 每条事实都要标注 speaker：用户说的填 "user"，报告/材料填 "material"，系统事件（如“【计划事件】”）填 "system"；如果某条事实只出现在 AI 的话里，填 "ai"。
+
 请将提取的事实分类为：
 1. "observation"：临床观察，包括：
    - "signal"：基础生理信号数值（血压、心率、呼吸、体温、血氧、血糖、HRV 等具体数字）
@@ -1488,7 +1493,8 @@ ${log.content}
       "type": "observation",
       "subtype": "signal",
       "content": "血压 198/112 mmHg",
-      "log_id": "log_..."
+      "log_id": "log_...",
+      "speaker": "user"
     },
     {
       "type": "observation",
@@ -1537,8 +1543,28 @@ ${log.content}
       throw new Error('临床事实提取失败：' + e.message);
     }
 
-    const facts = parsedFactsObj.facts || [];
+    let facts = parsedFactsObj.facts || [];
     console.log(`[Stage 1] ✓ 完成 (${Date.now() - s1Start}ms, ${facts.length} 条事实)`);
+
+    // ── 三层规则（SYNC_USER_ONLY，默认开启；设为 0 可退回旧行为）──
+    // 1) AI 自己说的话不是事实：speaker=ai 的事实一律丢弃
+    // 2) 聊天里用户自述的用药/治疗变化 → 只记到“现在·状态”的备注，不写进 wiki 用药页（医嘱以健康计划为准，改计划需用户确认）
+    if (process.env.SYNC_USER_ONLY !== '0') {
+      const typeOf = Object.fromEntries(unsyncedLogs.map(l => [l.id, l.type]));
+      const isMaterial = (f) => ['ocr', 'ai_report'].includes(typeOf[f.log_id]) || f.speaker === 'material';
+      const selfNotes = [];
+      let droppedAi = 0;
+      facts = facts.filter(f => {
+        if (f.speaker === 'ai' && !isMaterial(f)) { droppedAi++; return false; }
+        if (f.type === 'intervention' && f.subtype === 'treatment' && !isMaterial(f)) {
+          if (f.speaker !== 'system') selfNotes.push({ text: `用户自述（用药/治疗）：${f.content}`, log_id: f.log_id });
+          return false;
+        }
+        return true;
+      });
+      if (selfNotes.length) { try { await stateApi.addSyncNotes(id, selfNotes); } catch (e) { console.warn('[Sync] 写入用户自述失败:', e.message); } }
+      console.log(`[Sync] 三层规则：丢弃 AI 话语事实 ${droppedAi} 条，用户自述用药转入状态 ${selfNotes.length} 条，剩余 ${facts.length} 条进入 wiki`);
+    }
 
     // ── 若无事实提取，标记为已同步并跳过 Stage 3 ──
     if (facts.length === 0) {
