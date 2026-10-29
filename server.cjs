@@ -1449,16 +1449,31 @@ app.post('/api/clients/:id/sync', async (req, res) => {
     const currentWiki = await readWikiPages(id);
 
     // ── Stage 1: Fact Parse & Categorization ──
+    // 跨批上下文：把本批之前已同步的最近 4 条对话带上，只用来理解“好的/对”指什么，不提取事实
+    const batchIds = new Set(unsyncedLogs.map(l => l.id));
+    const ctxLogs = allLogs.filter(l => l.synced && !batchIds.has(l.id) && l.type !== 'ocr' && l.type !== 'ai_report').slice(-4);
+    const ctxLogsText = ctxLogs.length ? `[仅供理解上下文] 更早的对话（不要从中提取事实）：\n${ctxLogs.map(l => String(l.content || '').slice(0, 400)).join('\n---\n')}\n\n` : '';
     const s1Start = Date.now();
     console.log(`[Stage 1] Extracting clinical facts from ${unsyncedLogs.length} logs for client ${id}...`);
 
     const stage1Prompt = `你是一个非常专业且细心的医疗事实提取助手。请从下面新增的沟通记录中提取所有的临床观察、医疗干预事实，以及用户画像信息（例如：新增诊断、主诉症状、生理指标数值、化验/CT检查结果、用药变更、留置管道、护理措施、沟通偏好、个人背景等）。
 严禁凭空编造事实或添加沟通记录中未提及的内容。对于每一条事实，必须明确匹配其来自哪一条沟通记录的 ID。
 
-🔒 说话人规则（最重要，必须遵守）：
-- 对话类记录（内容是“用户：… / AI：…”的格式）里，**只能从“用户：”说的话中提取事实**。“AI：”说的话只是上下文，**绝不能作为事实提取**——例如 AI 说“某药已经停了”“早上八点吃阿司匹林”“当前口服药为…”，都不是事实。
+🔒 说话人与上下文规则（最重要，必须遵守）：
+- 对话类记录（内容是“用户：… / AI：…”的格式）里，**AI 单方面说的话不是事实**——例如 AI 说“某药已经停了”“早上八点吃阿司匹林”“您是糖尿病肾病三期”，只要用户没有认可，一律不提取。
+- **要结合上下文理解用户的话**：如果 AI 提出了具体建议/方案/服务，或复述了一个数值请用户确认，而用户随后明确表态，就按用户的表态处理：
+  · 用户同意（“好的/行/可以/嗯/对/就这么办/刚才那个可以”等，可以跨几轮、可以在后面的记录里）→ 提取“用户同意的那件具体事”，内容要写完整（例如“用户同意早餐加一杯无糖豆浆”“血压 147/93 mmHg（用户确认）”），speaker 填 "user_confirmed"。
+  · 只同意一部分 → 只提取被同意的部分；带条件同意（“可以，但只周末”）要把条件写进内容。
+  · 用户拒绝（“不要/先不用/算了”）→ 绝不能记成已采纳；可记为一条“用户拒绝了……”（speaker 填 "user"）。
+  · 用户先同意后反悔（“算了/还是不吃了/取消”）→ 以最后的态度为准：只写一条“用户取消/放弃了……”，**不要**再写“用户同意……”，也不要把它当成已采纳的饮食/用药/计划内容。
+  · 用户的“好的/嗯”只是礼貌应答（回应寒暄、提醒、“要不要我解释一下”这类没有具体方案的话）→ 什么都不提取。
+  · AI 提问、用户回答（“您有高血压吗？”“没有”）→ 事实来自用户的回答，按回答的意思记（否认就记否认）。
+  · 用户更正（“不是X是Y”）→ 以更正后的为准。
+- 标注为 [仅供理解上下文] 的记录是更早的对话：**不要直接从中提取事实**；但如果下面“新增沟通记录”里的用户回复（如“好的/对/可以”）是在认可这些更早记录里 AI 的提议或复述的数值，就要提取被认可的那件具体事（写完整），speaker 填 "user_confirmed"，log_id 填新增记录的 ID。
+- **AI 只是陈述信息而没有征求意见**（如“您下周三上午复查”“您的血压偏高”“提醒您少吃油腻”），用户回“好的/知道了”只是表示收到，**不算确认**，不要提取这些信息。只有 AI 提出了需要用户选择的具体方案（“换成…行吗？”“要不要…？”），或复述数值请用户核对（“您是说…对吗？”）时，用户的“好的/对”才算确认。
+- 每条事实加 "final" 字段：true=用户最终采纳/确认；false=用户后来又取消、反悔或改成了别的。
 - 报告/材料类记录（类型 ocr、ai_report，或标题为“建档上传报告”的）是医疗材料，可以正常提取。
-- 每条事实都要标注 speaker：用户说的填 "user"，报告/材料填 "material"，系统事件（如“【计划事件】”）填 "system"；如果某条事实只出现在 AI 的话里，填 "ai"。
+- 每条事实都要标注 speaker：用户自己说的填 "user"，用户认可了 AI 的提议填 "user_confirmed"，报告/材料填 "material"，系统事件（如“【计划事件】”）填 "system"；如果某条内容只出现在 AI 的话里、用户没认可，填 "ai"。
 
 请将提取的事实分类为：
 1. "observation"：临床观察，包括：
@@ -1479,7 +1494,7 @@ app.post('/api/clients/:id/sync', async (req, res) => {
 
 💡 特别说明：对于 [类型: ai_report] 类型的记录（如 AI 营养师报告、AI 健康分析报告），请务必提取其中的营养干预建议（intervention:nutrition），包括：每日热量目标、三大营养素比例、蛋白质摄入目标、饮食计划、监测目标等关键内容。每个关键建议拆分为一条独立事实。
 
-新增沟通记录内容如下：
+${ctxLogsText}新增沟通记录内容如下：
 ${unsyncedLogs.map(log => `
 [ID: ${log.id}] [类型: ${log.type}] [标题: ${log.title}] [时间: ${log.timestamp}]
 内容: 
@@ -1494,7 +1509,8 @@ ${log.content}
       "subtype": "signal",
       "content": "血压 198/112 mmHg",
       "log_id": "log_...",
-      "speaker": "user"
+      "speaker": "user",
+      "final": true
     },
     {
       "type": "observation",
@@ -1555,9 +1571,10 @@ ${log.content}
       const selfNotes = [];
       let droppedAi = 0;
       facts = facts.filter(f => {
+        if (f.final === false) { droppedAi++; return false; }
         if (f.speaker === 'ai' && !isMaterial(f)) { droppedAi++; return false; }
         if (f.type === 'intervention' && f.subtype === 'treatment' && !isMaterial(f)) {
-          if (f.speaker !== 'system') selfNotes.push({ text: `用户自述（用药/治疗）：${f.content}`, log_id: f.log_id });
+          if (f.speaker !== 'system') selfNotes.push({ text: `${f.speaker === 'user_confirmed' ? '用户确认（用药/治疗）' : '用户自述（用药/治疗）'}：${f.content}`, log_id: f.log_id });
           return false;
         }
         return true;
