@@ -11,6 +11,12 @@
  */
 const crypto = require('crypto');
 
+// 还没有健康计划时，首页和 AI 共用的“通用建议目标”（唯一定义处；不是医嘱）。首页“今日精选自护行动”与步数目标都读这里。
+const DEFAULT_GOALS = [
+  { key: 'default_steps', line: 'exercise', title: '累计完成今日 8,000 步轻快走', detail: '餐后散步 20 分钟，量力而行', target: { kind: 'steps', value: 8000 } },
+  { key: 'default_water', line: 'diet', title: '全天饮水约 2000 ml', detail: '少量多次；如医生要求限水，以医生为准', target: { kind: 'water_ml', value: 2000 } },
+  { key: 'default_sleep', line: 'environment', title: '23:00 前熄灯就寝', detail: '保证 7 小时左右睡眠', target: { kind: 'sleep_by', value: '23:00' } },
+];
 const ORDER_LINES = ['medication', 'monitor'];           // 未来·医嘱：药、复查监测
 const GOAL_LINES = ['diet', 'exercise', 'environment'];  // 未来·目标/生活要求
 const STATE_KEYS = ['record_name', 'preferred_name', 'nickname', 'habits', 'preferences', 'allergies', 'symptoms', 'self_reported_meds', 'stage', 'notes'];
@@ -93,6 +99,7 @@ function registerState(app, { db, findClient, planApi, readWikiPages, readLogs }
         validity,
         orders: pick(ORDER_LINES),
         goals: pick(GOAL_LINES),
+        default_goals: active ? [] : DEFAULT_GOALS,
         pending_proposals: drafts,
       },
     };
@@ -202,7 +209,10 @@ function renderStateText(s) {
   L.push('');
   const f = s.future;
   L.push('【未来·健康计划（医嘱以此为准；只能提议修改，需用户确认）】');
-  if (!f.plan) L.push('（暂无生效的健康计划）');
+  if (!f.plan) {
+    L.push('（暂无生效的健康计划）');
+    if (f.default_goals && f.default_goals.length) L.push('首页显示的通用建议目标（不是医嘱，用户还没有健康计划）：' + f.default_goals.map((g) => g.title).join('；'));
+  }
   else {
     L.push(`计划：${f.plan.phase_title || ''}${f.plan.version ? `（v${f.plan.version}）` : ''}`);
     if (f.validity && f.validity.state) L.push(`医嘱有效性：${f.validity.state}${f.validity.ref_date ? `，依据 ${f.validity.ref_date}` : ''}`);
@@ -213,5 +223,5 @@ function renderStateText(s) {
   return L.join('\n');
 }
 
-module.exports = { registerState, renderStateText, ORDER_LINES, GOAL_LINES };
+module.exports = { registerState, renderStateText, ORDER_LINES, GOAL_LINES, DEFAULT_GOALS };
 
